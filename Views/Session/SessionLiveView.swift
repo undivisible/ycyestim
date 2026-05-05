@@ -64,10 +64,7 @@ struct SessionLiveView: View {
         } message: {
             Text("This will immediately cut all output to all channels.")
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { controlVM.isEmergencyStopped },
-            set: { _ in }
-        )) {
+        .fullScreenCover(isPresented: $controlVM.isEmergencyStopped) {
             EmergencyStoppedOverlay()
         }
         .sheet(isPresented: $showQuickPresets) {

@@ -70,12 +70,6 @@ struct ControlDashboardView: View {
         } message: {
             Text("Strength exceeds \(Int(settingsVM.safetyConfig.confirmationThreshold))%. Are you sure?")
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { controlVM.isSessionActive },
-            set: { _ in }
-        )) {
-            SessionLiveView()
-        }
     }
 
     // MARK: - Connection Status Bar

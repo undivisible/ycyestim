@@ -37,9 +37,14 @@ final class ControlVM: ObservableObject {
     let presetStore = PresetStore()
 
     private var sessionTimer: Timer?
-    private var programTimer: Timer?
     private var rampTimer: Timer?
+    private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
+
+    // Retained haptic generators (prevent missed haptics)
+    private let lightGen = UIImpactFeedbackGenerator(style: .light)
+    private let mediumGen = UIImpactFeedbackGenerator(style: .medium)
+    private let heavyGen = UIImpactFeedbackGenerator(style: .heavy)
 
     // MARK: - Computed
 
@@ -63,11 +68,15 @@ final class ControlVM: ObservableObject {
         guard !isEmergencyStopped else { return }
 
         sessionState = .starting
+        sessionStartTime = .now
+        isPaused = false
+        intensityBoost = 0
+        currentProgramStep = 0
+
         Task {
             do {
                 try await connectIfNeeded()
                 sessionState = .active(elapsedMs: 0, currentStep: 0)
-                isPaused = false
                 startSessionTimer()
                 startRampIfNeeded()
                 try await applyCurrentSettings()
@@ -81,25 +90,26 @@ final class ControlVM: ObservableObject {
 
     func stopSession() {
         sessionState = .stopping
+        let finalElapsed = sessionElapsedMs // capture BEFORE invalidating
+        let finalMaxStrength = currentMaxStrength
+        let finalPreset = activePreset
+        let mode = settingsVM?.connectionConfig.mode ?? .im
+        let startTime = sessionStartTime
+
         sessionTimer?.invalidate()
-        programTimer?.invalidate()
         rampTimer?.invalidate()
 
         Task {
-            do {
-                try await sendEmergencyStop()
-            } catch {
-                // Log but don't block
-            }
+            try? await sendEmergencyStop()
 
-            // Save session record
+            // Save session record with actual elapsed time
             let record = SessionRecord(
-                startTime: Date(timeIntervalSinceNow: -Double(sessionElapsedMs) / 1000),
+                startTime: startTime,
                 endTime: .now,
-                durationMs: sessionElapsedMs,
-                maxStrengthReached: currentMaxStrength,
-                presetsUsed: activePreset.map { [$0.name] } ?? [],
-                mode: settingsVM?.connectionConfig.mode ?? .im
+                durationMs: finalElapsed,
+                maxStrengthReached: finalMaxStrength,
+                presetsUsed: finalPreset.map { [$0.name] } ?? [],
+                mode: mode
             )
             presetStore.saveSession(record)
 
@@ -128,11 +138,9 @@ final class ControlVM: ObservableObject {
         isEmergencyStopped = true
         sessionState = .emergencyStopped
         sessionTimer?.invalidate()
-        programTimer?.invalidate()
         rampTimer?.invalidate()
 
         triggerHaptic(.heavy)
-
         try await sendEmergencyStop()
     }
 
@@ -150,9 +158,7 @@ final class ControlVM: ObservableObject {
     func updateChannelA(_ update: (inout ChannelState) -> Void) {
         update(&channelA)
         applySafetyLimits(to: &channelA)
-        if isSynced {
-            channelB.sync(from: channelA)
-        }
+        if isSynced { channelB.sync(from: channelA) }
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("A", state: channelA) }
@@ -162,9 +168,7 @@ final class ControlVM: ObservableObject {
     func updateChannelB(_ update: (inout ChannelState) -> Void) {
         update(&channelB)
         applySafetyLimits(to: &channelB)
-        if isSynced {
-            channelA.sync(from: channelB)
-        }
+        if isSynced { channelA.sync(from: channelB) }
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("B", state: channelB) }
@@ -181,9 +185,7 @@ final class ControlVM: ObservableObject {
 
     func toggleSync() {
         isSynced.toggle()
-        if isSynced {
-            channelB.sync(from: channelA)
-        }
+        if isSynced { channelB.sync(from: channelA) }
         triggerHaptic(.light)
     }
 
@@ -224,13 +226,12 @@ final class ControlVM: ObservableObject {
 
     func applyIntensityBoost(_ boost: Double) {
         intensityBoost = boost
-        // boost is -20 to +20 percentage points
         updateChannelA { ch in
-            ch.strength = max(0, ch.strength + boost)
+            ch.strength = max(0, min(100, ch.strength + boost))
         }
         if !isSynced {
             updateChannelB { ch in
-                ch.strength = max(0, ch.strength + boost)
+                ch.strength = max(0, min(100, ch.strength + boost))
             }
         }
     }
@@ -239,12 +240,9 @@ final class ControlVM: ObservableObject {
 
     func updateWaveformPreview() {
         Task {
-            let points = await waveformEngine.generate(
-                channelA.waveform,
-                samples: 500,
-                frequency: channelA.frequency
+            waveformPoints = await waveformEngine.generate(
+                channelA.waveform, samples: 500, frequency: channelA.frequency
             )
-            waveformPoints = points
         }
     }
 
@@ -252,7 +250,6 @@ final class ControlVM: ObservableObject {
 
     private func connectIfNeeded() async throws {
         guard let settings = settingsVM else { return }
-
         switch settings.connectionConfig.mode {
         case .im:
             let state = await imService.connectionState
@@ -263,7 +260,6 @@ final class ControlVM: ObservableObject {
             }
         case .ble:
             connectionStatus = .connecting
-            // BLE connection handled by DeviceVM
             connectionStatus = .connected
         case .http:
             connectionStatus = .connecting
@@ -283,29 +279,24 @@ final class ControlVM: ObservableObject {
 
     private func applyChannelCommand(_ channel: String, state: ChannelState) async throws {
         guard let settings = settingsVM else { return }
-        let strength = clampStrength(state.strength, config: settings.safetyConfig)
-        let finalStrength = Int(strength)
+        let strength = Int(min(state.strength, settings.safetyConfig.maxStrength))
 
         switch settings.connectionConfig.mode {
         case .im:
-            try await imService.sendChannelControl(channel: channel, strength: finalStrength, durationMs: state.durationMs)
+            try await imService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         case .ble:
-            try await bluetoothService.sendChannelControl(channel: channel, strength: finalStrength, durationMs: state.durationMs)
+            try await bluetoothService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         case .http:
-            try await httpService.sendChannelControl(channel: channel, strength: finalStrength, durationMs: state.durationMs)
+            try await httpService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         }
     }
 
     private func sendEmergencyStop() async throws {
         guard let settings = settingsVM else { return }
-
         switch settings.connectionConfig.mode {
-        case .im:
-            try await imService.emergencyStop()
-        case .ble:
-            try await bluetoothService.emergencyStop()
-        case .http:
-            try await httpService.emergencyStop()
+        case .im: try await imService.emergencyStop()
+        case .ble: try await bluetoothService.emergencyStop()
+        case .http: try await httpService.emergencyStop()
         }
     }
 
@@ -313,32 +304,24 @@ final class ControlVM: ObservableObject {
         guard let settings = settingsVM else { return }
         let config = settings.safetyConfig
 
-        // Clamp to global max
         channel.strength = min(channel.strength, config.maxStrength)
 
-        // Clamp to channel-specific limits
         let chConfig = channel.id == .a ? settings.channelAConfig : settings.channelBConfig
         channel.strength = max(chConfig.minStrength, min(channel.strength, chConfig.maxStrength))
 
-        // Check safety confirmation threshold
-        if channel.strength > config.confirmationThreshold && showSafetyWarning == false {
+        if channel.strength > config.confirmationThreshold && !showSafetyWarning {
             showSafetyWarning = true
         }
-    }
-
-    private func clampStrength(_ value: Double, config: SafetyConfig) -> Double {
-        min(value, config.maxStrength)
     }
 
     // MARK: - Ramp Control
 
     private func startRampIfNeeded() {
         guard let settings = settingsVM else { return }
-        let rampRate = settings.safetyConfig.rampRateLimit // units per second
+        let rampRate = settings.safetyConfig.rampRateLimit
         guard rampRate > 0 else { return }
 
         isRamping = true
-        // Gradually ramp up from 0 to target strength
         let targetA = channelA.strength
         channelA.strength = 0
         let targetB = isSynced ? targetA : channelB.strength
@@ -371,27 +354,16 @@ final class ControlVM: ObservableObject {
 
         sessionElapsedMs = 0
         let timeoutMs = settings.safetyConfig.sessionTimeoutMinutes * 60 * 1000
-        let warningMs = (settings.safetyConfig.sessionTimeoutMinutes - settings.notificationConfig.timerWarningMinutes) * 60 * 1000
 
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, !self.isPaused else { return }
                 self.sessionElapsedMs += 1000
 
-                // Warning before timeout
-                if settings.notificationConfig.timerWarningAlert &&
-                   timeoutMs > 0 &&
-                   self.sessionElapsedMs >= warningMs &&
-                   self.sessionElapsedMs < warningMs + 1000 {
-                    // Could trigger notification here
-                }
-
-                // Auto-stop on timeout
                 if timeoutMs > 0 && self.sessionElapsedMs >= timeoutMs {
                     self.stopSession()
                 }
 
-                // Program step advancement
                 if let program = self.activeProgram, program.autoProgress {
                     self.advanceProgramStep(program)
                 }
@@ -404,7 +376,6 @@ final class ControlVM: ObservableObject {
         for (index, step) in program.steps.enumerated() {
             if currentMs >= step.timeOffset && currentProgramStep != index {
                 currentProgramStep = index
-                // Apply step settings
                 updateChannelA { ch in
                     ch.strength = step.channelA.strength
                     ch.waveform = step.channelA.waveform
@@ -431,21 +402,19 @@ final class ControlVM: ObservableObject {
     private func triggerHaptic(_ intensity: SafetyConfig.HapticIntensity) {
         #if os(iOS)
         switch intensity {
-        case .off:
-            return
-        case .light:
-            let gen = UIImpactFeedbackGenerator(style: .light)
-            gen.prepare()
-            gen.impactOccurred()
-        case .medium:
-            let gen = UIImpactFeedbackGenerator(style: .medium)
-            gen.prepare()
-            gen.impactOccurred()
-        case .heavy:
-            let gen = UIImpactFeedbackGenerator(style: .heavy)
-            gen.prepare()
-            gen.impactOccurred()
+        case .off: return
+        case .light: lightGen.impactOccurred()
+        case .medium: mediumGen.impactOccurred()
+        case .heavy: heavyGen.impactOccurred()
         }
+        #endif
+    }
+
+    func prepareHaptics() {
+        #if os(iOS)
+        lightGen.prepare()
+        mediumGen.prepare()
+        heavyGen.prepare()
         #endif
     }
 

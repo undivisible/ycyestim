@@ -1,0 +1,43 @@
+# Xcode
+*.xcworkspace
+*.xcuserdata
+*.xcbkptlist
+DerivedData/
+*.xcodeproj/xcshareddata/
+*.xcodeproj/project.xcworkspace/
+
+# Build
+.build/
+.brisk/
+*.app
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods
+Pods/
+*.xcworkspace
+
+# Carthage
+Carthage/Build/
+
+# SwiftPM
+Packages/
+Package.resolved
+.build/
+
+# IDE
+.idea/
+.vscode/
+
+# Swift
+*.swiftpm/
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+*.secret
+Secrets/

@@ -60,10 +60,9 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
           DEAD_CODE_STRIPPING: true
         Release:
-          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
           SWIFT_COMPILATION_MODE: wholemodule
           DEAD_CODE_STRIPPING: true
-          SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
     preBuildScripts: []
     postCompileScripts: []
     postBuildScripts: []
