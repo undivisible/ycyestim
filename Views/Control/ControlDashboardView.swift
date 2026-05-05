@@ -475,6 +475,11 @@ struct EdgeModeSettingsSheet: View {
                     Label(controlVM.edgeModeState.label, systemImage: controlVM.edgeModeState.icon)
                         .foregroundColor(.secondary)
 
+                    LabeledContent("HealthKit") {
+                        Text(authorizationStatusLabel)
+                            .foregroundColor(.secondary)
+                    }
+
                     if let error = controlVM.heartRateAuthorizationError {
                         Text(error)
                             .font(.caption)
@@ -542,6 +547,19 @@ struct EdgeModeSettingsSheet: View {
                 settingsVM.saveAll()
             }
         )
+    }
+
+    private var authorizationStatusLabel: String {
+        switch controlVM.heartRateAuthorizationStatus {
+        case .unavailable:
+            return "Unavailable"
+        case .unknown:
+            return "Unknown"
+        case .shouldRequest:
+            return "Needs Request"
+        case .unnecessary:
+            return "Already Checked"
+        }
     }
 }
 

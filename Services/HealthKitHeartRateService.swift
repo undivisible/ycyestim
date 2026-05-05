@@ -20,6 +20,13 @@ struct HeartRateReading: Equatable {
     let sampleDate: Date
 }
 
+enum HeartRateAuthorizationStatus: Equatable {
+    case unavailable
+    case unknown
+    case shouldRequest
+    case unnecessary
+}
+
 final class HealthKitHeartRateService: @unchecked Sendable {
     private let healthStore = HKHealthStore()
     private var query: HKAnchoredObjectQuery?
@@ -45,6 +52,35 @@ final class HealthKitHeartRateService: @unchecked Sendable {
                     continuation.resume()
                 } else {
                     continuation.resume(throwing: HeartRateServiceError.unavailable)
+                }
+            }
+        }
+    }
+
+    func authorizationStatus() async throws -> HeartRateAuthorizationStatus {
+        guard isAvailable else {
+            return .unavailable
+        }
+        guard let heartRate = HKObjectType.quantityType(forIdentifier: .heartRate) else {
+            throw HeartRateServiceError.heartRateTypeUnavailable
+        }
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HeartRateAuthorizationStatus, Error>) in
+            healthStore.getRequestStatusForAuthorization(toShare: [], read: [heartRate]) { status, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                switch status {
+                case .unknown:
+                    continuation.resume(returning: .unknown)
+                case .shouldRequest:
+                    continuation.resume(returning: .shouldRequest)
+                case .unnecessary:
+                    continuation.resume(returning: .unnecessary)
+                @unknown default:
+                    continuation.resume(returning: .unknown)
                 }
             }
         }

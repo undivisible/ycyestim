@@ -29,6 +29,7 @@ struct ContentView: View {
             controlVM.injectSettings(settingsVM)
             controlVM.prepareHaptics()
             controlVM.updateWaveformPreview()
+            Task { await controlVM.refreshHeartRateAuthorizationStatus() }
         }
         .fullScreenCover(isPresented: $onboardingDone.not) {
             OnboardingView { onboardingDone = true }

@@ -141,7 +141,10 @@ struct SettingsView: View {
                     HStack {
                         Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
                         Spacer()
-                        Button("Authorize") {
+                        Text(heartRateAuthorizationLabel)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Button("Check") {
                             Task { await controlVM.requestHeartRateAuthorization() }
                         }
                         .buttonStyle(.bordered)
@@ -335,6 +338,19 @@ struct SettingsView: View {
             .onChange(of: settingsVM.channelAConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.channelBConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.programConfig) { settingsVM.saveAll() }
+        }
+    }
+
+    private var heartRateAuthorizationLabel: String {
+        switch controlVM.heartRateAuthorizationStatus {
+        case .unavailable:
+            return "Unavailable"
+        case .unknown:
+            return "Unknown"
+        case .shouldRequest:
+            return "Needs Request"
+        case .unnecessary:
+            return "Already Checked"
         }
     }
 }

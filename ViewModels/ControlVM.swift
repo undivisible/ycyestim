@@ -26,6 +26,7 @@ final class ControlVM: ObservableObject {
     @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
     @Published var edgeModeState: EdgeModeState = .inactive
     @Published var latestHeartRateReading: HeartRateReading?
+    @Published var heartRateAuthorizationStatus: HeartRateAuthorizationStatus = .unknown
     @Published var heartRateAuthorizationError: String?
 
     enum ConnectionStatus {
@@ -421,13 +422,47 @@ final class ControlVM: ObservableObject {
 
     func requestHeartRateAuthorization() async {
         do {
-            try await heartRateService.requestAuthorization()
+            let status = try await heartRateService.authorizationStatus()
+            heartRateAuthorizationStatus = status
+
+            if status == .shouldRequest || status == .unknown {
+                try await heartRateService.requestAuthorization()
+                heartRateAuthorizationStatus = try await heartRateService.authorizationStatus()
+            }
+
             heartRateAuthorizationError = nil
             if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
                 startHeartRateSafetyIfNeeded()
             }
         } catch {
             heartRateAuthorizationError = error.localizedDescription
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+        }
+    }
+
+    func refreshHeartRateAuthorizationStatus() async {
+        do {
+            let status = try await heartRateService.authorizationStatus()
+            heartRateAuthorizationStatus = status
+            heartRateAuthorizationError = nil
+
+            switch status {
+            case .unavailable:
+                heartRateSafetyState = .unavailable
+                edgeModeState = .inactive
+            case .shouldRequest, .unknown:
+                if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
+                    heartRateSafetyState = .needsAuthorization
+                    edgeModeState = settingsVM?.edgeModeConfig.isEnabled == true ? .armed : .inactive
+                }
+            case .unnecessary:
+                if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
+                    startHeartRateSafetyIfNeeded()
+                }
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateAuthorizationStatus = heartRateService.isAvailable ? .unknown : .unavailable
             heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
         }
     }
