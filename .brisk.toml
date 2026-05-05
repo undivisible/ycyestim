@@ -1,0 +1,46 @@
+[package]
+name = "YCYEStim"
+version = "1.0.0"
+
+[app]
+bundle_id = "com.ycy.YCYEStim"
+deployment_target = "18.0"
+sources = "."
+resources = ["Resources"]
+asset_catalogs = ["Assets.xcassets"]
+app_icon = "AppIcon"
+frameworks = ["SwiftUI", "CoreBluetooth", "UIKit"]
+swift_flags = ["-strict-concurrency=complete"]
+linker_flags = []
+
+[build]
+architectures = ["arm64"]
+platform = "ios"
+configuration = "Debug"
+
+[app.info]
+CFBundleDisplayName = "YCYEStim"
+CFBundleShortVersionString = "1.0.0"
+CFBundleVersion = "1"
+UILaunchScreen = true
+UISupportedInterfaceOrientations = ["UIInterfaceOrientationPortrait"]
+UIRequiresFullScreen = true
+LSApplicationCategoryType = "public.app-category.healthcare-fitness"
+NSBluetoothAlwaysUsageDescription = "Used to connect to YCY-YOKONEX e-stim devices via Bluetooth."
+NSBluetoothPeripheralUsageDescription = "Used to communicate with e-stim hardware."
+NSMotionUsageDescription = "Shake to emergency stop requires motion detection."
+
+[signing]
+identity = "-"
+hardened_runtime = false
+notarize = false
+keychain_profile = ""
+
+[test]
+sources = "Tests"
+xctest = false
+
+[archive]
+path = ".brisk/Archives/YCYEStim.app"
+export_path = ".brisk/Archives/YCYEStim.zip"
+zip = true

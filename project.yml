@@ -1,0 +1,85 @@
+name: YCYEStim
+options:
+  bundleIdPrefix: com.ycy
+  deploymentTarget:
+    iOS: "18.0"
+  generateEmptyDirectories: true
+  createIntermediateGroups: true
+  xcodeVersion: "16.0"
+  indentationWidth: 4
+  usesTabs: false
+  groupSortPosition: top
+  postGenCommand: "echo 'Xcode project generated successfully'"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ENABLE_BITCODE: false
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Manual
+    ASSETCATALOG_COMPILER_INCLUDE_ALL_APP_ICON_ASSETS: true
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  YCYEStim:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - "Tests/**"
+          - "*.xcodeproj"
+          - "*.xcworkspace"
+          - "docs/**"
+          - ".git/**"
+          - ".brisk/**"
+          - ".build/**"
+          - "*.md"
+          - "*.toml"
+          - "project.yml"
+          - "Package.swift"
+          - "Resources/default_presets.json"
+      - path: Resources
+        buildPhase: resources
+        type: file
+    dependencies: []
+    settings:
+      base:
+        PRODUCT_NAME: "YCYEStim"
+        PRODUCT_BUNDLE_IDENTIFIER: com.ycy.YCYEStim
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: "Info.plist"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+        SWIFT_EMIT_LOC_STRINGS: true
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
+          DEAD_CODE_STRIPPING: true
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_COMPILATION_MODE: wholemodule
+          DEAD_CODE_STRIPPING: true
+          SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
+    preBuildScripts: []
+    postCompileScripts: []
+    postBuildScripts: []
+
+  YCYEStimTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: YCYEStim
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ycy.YCYEStimTests
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: "YCYEStim Tests"
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/YCYEStim.app/YCYEStim"
