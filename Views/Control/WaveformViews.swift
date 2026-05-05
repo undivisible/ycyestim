@@ -80,7 +80,7 @@ struct WaveformEditorView: View {
     @EnvironmentObject var presetStore: PresetStore
     @State private var drawnPoints: [Double] = Array(repeating: 0, count: 100)
     @State private var name: String = "Custom Waveform"
-    @State private var selectedPreset: QuickShape? = .none
+    @State private var selectedPreset: QuickShape? = Optional.none
 
     enum QuickShape: String, CaseIterable {
         case none = "Clear"
@@ -229,7 +229,7 @@ struct ChannelDetailView: View {
                         Text("\(Int(ch.strength))%")
                             .font(.system(size: 56, weight: .bold, design: .rounded))
                             .foregroundColor(isA ? .blue : .purple)
-                        Slider(value: binding(.strength), in: 0...100)
+                        Slider(value: binding(\.strength), in: 0...100)
                             .tint(isA ? .blue : .purple)
                     }
 
@@ -251,17 +251,17 @@ struct ChannelDetailView: View {
                         }
                     }
 
-                    sliderCard("Frequency", binding(.frequency), unit: "Hz", range: 1...50, color: .orange)
+                    sliderCard("Frequency", binding(\.frequency), unit: "Hz", range: 1...50, color: .orange)
                     sliderCard("Pulse Width", Binding(
                         get: { Double(ch.pulseWidth) },
-                        set: { update { $0.pulseWidth = Int($0) } }
+                        set: { newValue in update { channel in channel.pulseWidth = Int(newValue) } }
                     ), unit: "μs", range: 50...1000, color: .pink)
-                    sliderCard("Phase Offset", binding(.phaseOffset), unit: "°", range: 0...360, color: .teal)
+                    sliderCard("Phase Offset", binding(\.phaseOffset), unit: "°", range: 0...360, color: .teal)
 
                     detailCard("Duration") {
                         Picker("", selection: Binding(
                             get: { ch.durationMs },
-                            set: { update { $0.durationMs = $0 } }
+                            set: { newValue in update { channel in channel.durationMs = newValue } }
                         )) {
                             Text("Continuous").tag(0)
                             Text("10s").tag(10_000)
@@ -274,7 +274,7 @@ struct ChannelDetailView: View {
                         .pickerStyle(.segmented)
                     }
 
-                    Toggle("Invert Output", isOn: binding(.isInverted))
+                    Toggle("Invert Output", isOn: binding(\.isInverted))
                         .padding().glassCard()
                 }
                 .padding()
@@ -290,7 +290,7 @@ struct ChannelDetailView: View {
     private func binding<T>(_ keyPath: WritableKeyPath<ChannelState, T>) -> Binding<T> {
         Binding(
             get: { ch[keyPath: keyPath] },
-            set: { update { $0[keyPath: keyPath] = $0 } }
+            set: { newValue in update { channel in channel[keyPath: keyPath] = newValue } }
         )
     }
 

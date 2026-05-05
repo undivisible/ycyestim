@@ -26,11 +26,12 @@ final class DeviceVM: ObservableObject {
     func startScan() {
         isScanning = true
         Task {
-            await bluetoothService.startScan()
-            // Update discovered peripherals periodically
+            bluetoothService.startScan { [weak self] peripherals in
+                self?.discoveredPeripherals = peripherals
+            }
             while isScanning {
                 try? await Task.sleep(for: .seconds(1))
-                let peripherals = await bluetoothService.peripherals
+                let peripherals = bluetoothService.peripherals
                 discoveredPeripherals = peripherals
             }
         }
@@ -39,7 +40,7 @@ final class DeviceVM: ObservableObject {
     func stopScan() {
         isScanning = false
         Task {
-            await bluetoothService.stopScan()
+            bluetoothService.stopScan()
         }
     }
 
@@ -72,7 +73,7 @@ final class DeviceVM: ObservableObject {
         batteryLevel = nil
         firmwareVersion = nil
         Task {
-            await bluetoothService.disconnect()
+            bluetoothService.disconnect()
         }
     }
 
@@ -80,8 +81,8 @@ final class DeviceVM: ObservableObject {
 
     private func readDeviceInfo() {
         Task {
-            let battery = await bluetoothService.batteryLevel
-            let firmware = await bluetoothService.firmwareVersion
+            let battery = bluetoothService.batteryLevel
+            let firmware = bluetoothService.firmwareVersion
             batteryLevel = battery
             firmwareVersion = firmware
 
@@ -100,7 +101,5 @@ final class DeviceVM: ObservableObject {
         }
     }
 
-    deinit {
-        stopScan()
-    }
+    deinit {}
 }

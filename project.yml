@@ -9,14 +9,16 @@ options:
   indentationWidth: 4
   usesTabs: false
   groupSortPosition: top
-  postGenCommand: "echo 'Xcode project generated successfully'"
+  postGenCommand: "ruby scripts/fix_healthkit_capability.rb"
 
 settings:
   base:
     SWIFT_VERSION: "6.0"
     ENABLE_BITCODE: false
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: LZ3NL5434Q
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
+    PROVISIONING_PROFILE_SPECIFIER: ""
     ASSETCATALOG_COMPILER_INCLUDE_ALL_APP_ICON_ASSETS: true
     MARKETING_VERSION: "1.0.0"
     CURRENT_PROJECT_VERSION: "1"
@@ -25,6 +27,10 @@ targets:
   YCYEStim:
     type: application
     platform: iOS
+    attributes:
+      SystemCapabilities:
+        com.apple.HealthKit:
+          enabled: 1
     sources:
       - path: .
         excludes:
@@ -35,25 +41,32 @@ targets:
           - ".git/**"
           - ".brisk/**"
           - ".build/**"
+          - "scripts/**"
           - "*.md"
           - "*.toml"
+          - ".brisk.toml"
           - "project.yml"
           - "Package.swift"
           - "Resources/default_presets.json"
+          - "YCYEStim.entitlements"
       - path: Resources
         buildPhase: resources
         type: file
-    dependencies: []
+    dependencies:
+      - sdk: HealthKit.framework
     settings:
       base:
         PRODUCT_NAME: "YCYEStim"
-        PRODUCT_BUNDLE_IDENTIFIER: com.ycy.YCYEStim
+        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.ycy
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: "Info.plist"
+        CODE_SIGN_ENTITLEMENTS: "YCYEStim.entitlements"
+        CODE_SIGN_IDENTITY: "Apple Development"
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
         SWIFT_EMIT_LOC_STRINGS: true
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
         ENABLE_USER_SCRIPT_SANDBOXING: false
+        ENABLE_DEBUG_DYLIB: false
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
@@ -65,7 +78,16 @@ targets:
           DEAD_CODE_STRIPPING: true
     preBuildScripts: []
     postCompileScripts: []
-    postBuildScripts: []
+    postBuildScripts:
+      - name: "Normalize Signing Inputs"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+
+          profile="${CODESIGNING_FOLDER_PATH:-}/embedded.mobileprovision"
+          if [ -f "${profile}" ]; then
+              rm -f "${profile}"
+          fi
 
   YCYEStimTests:
     type: bundle.unit-test
@@ -76,9 +98,52 @@ targets:
       - target: YCYEStim
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ycy.YCYEStimTests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.ycy.tests
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_CFBundleDisplayName: "YCYEStim Tests"
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
         BUNDLE_LOADER: "$(TEST_HOST)"
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/YCYEStim.app/YCYEStim"
+
+schemes:
+  YCYEStim:
+    build:
+      targets:
+        YCYEStim: all
+        YCYEStimTests: [test]
+      postActions:
+        - name: "Re-embed Provisioning Profile"
+          settingsTarget: YCYEStim
+          script: |
+            set -eu
+
+            profile="${EXPANDED_PROVISIONING_PROFILE:-}"
+            app="${TARGET_BUILD_DIR:-}/${WRAPPER_NAME:-}"
+
+            if [ -z "${profile}" ] || [ ! -f "${profile}" ]; then
+                app_id="${DEVELOPMENT_TEAM}.${PRODUCT_BUNDLE_IDENTIFIER}"
+                for candidate in "${HOME}/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision; do
+                    if /usr/bin/grep -a -q "<string>${app_id}</string>" "${candidate}"; then
+                        profile="${candidate}"
+                        break
+                    fi
+                done
+            fi
+
+            if [ "${PLATFORM_NAME:-}" != "iphonesimulator" ] && [ -f "${profile}" ] && [ -d "${app}" ]; then
+                cp -f "${profile}" "${app}/embedded.mobileprovision"
+            fi
+    run:
+      config: Debug
+      executable: YCYEStim
+    test:
+      config: Debug
+      targets:
+        - YCYEStimTests
+    profile:
+      config: Release
+      executable: YCYEStim
+    analyze:
+      config: Debug
+    archive:
+      config: Release

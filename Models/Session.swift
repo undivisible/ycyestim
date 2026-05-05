@@ -19,6 +19,16 @@ struct SessionRecord: Identifiable, Codable, Equatable {
         var avgStrength: Double
         var peakStrength: Double
         var waveformsUsed: [String]
+
+        init(totalOutputMs: Int = 0,
+             avgStrength: Double = 0,
+             peakStrength: Double = 0,
+             waveformsUsed: [String] = []) {
+            self.totalOutputMs = totalOutputMs
+            self.avgStrength = avgStrength
+            self.peakStrength = peakStrength
+            self.waveformsUsed = waveformsUsed
+        }
     }
 
     init(id: UUID = UUID(),
@@ -29,7 +39,7 @@ struct SessionRecord: Identifiable, Codable, Equatable {
          channelB: SessionChannelStats? = nil,
          presetsUsed: [String] = [],
          maxStrengthReached: Double = 0,
-         mode: ConnectionMode = .im,
+         mode: ConnectionMode = .ble,
          notes: String = "") {
         self.id = id
         self.startTime = startTime

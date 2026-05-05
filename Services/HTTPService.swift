@@ -35,20 +35,26 @@ actor HTTPService {
 
     private func listenForMessages() {
         wsTask?.receive { [weak self] result in
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self?.messageHandler?(text)
-                case .data:
-                    break
-                @unknown default:
-                    break
-                }
-                self?.listenForMessages()
-            case .failure:
+            Task {
+                await self?.handleWebSocketResult(result)
+            }
+        }
+    }
+
+    private func handleWebSocketResult(_ result: Result<URLSessionWebSocketTask.Message, Error>) {
+        switch result {
+        case .success(let message):
+            switch message {
+            case .string(let text):
+                messageHandler?(text)
+            case .data:
+                break
+            @unknown default:
                 break
             }
+            listenForMessages()
+        case .failure:
+            break
         }
     }
 

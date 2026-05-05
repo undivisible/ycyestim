@@ -39,16 +39,8 @@ struct PresetBrowserView: View {
                 }
             }
             .sheet(isPresented: $showEditor) {
-                WaveformEditorView { waveform in
-                    // Create new preset from custom waveform
-                    let newPreset = Preset(
-                        name: waveform.name,
-                        icon: "pencil",
-                        color: "#BF5AF2",
-                        channelA: .init(strength: 30, waveform: waveform, frequency: 20, pulseWidth: 200, phaseOffset: 0, durationMs: 0)
-                    )
-                    presetStore.savePreset(newPreset)
-                }
+                WaveformEditorView()
+                    .environmentObject(presetStore)
             }
         }
     }

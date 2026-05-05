@@ -3,15 +3,15 @@ import Foundation
 // MARK: - Connection Mode
 
 enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
-    case im = "Tencent IM"
     case ble = "Bluetooth (BLE)"
     case http = "HTTP / WebSocket"
+
+    static var allCases: [ConnectionMode] { [.ble, .http] }
 
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .im: return "message.fill"
         case .ble: return "bluetooth"
         case .http: return "server.rack"
         }
@@ -19,9 +19,8 @@ enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
 
     var description: String {
         switch self {
-        case .im: return "Connect through Tencent Cloud IM. Works remotely."
         case .ble: return "Direct Bluetooth connection. No internet needed."
-        case .http: return "Connect to your self-hosted API-bridge server."
+        case .http: return "Connect to your own local API-bridge server."
         }
     }
 }
@@ -30,10 +29,6 @@ enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
 
 struct ConnectionConfig: Codable, Equatable {
     var mode: ConnectionMode
-
-    // IM settings
-    var imConnectCode: String       // "UID TOKEN" space-separated
-    var imAutoReconnect: Bool
 
     // BLE settings
     var bleLastDeviceId: String?
@@ -45,9 +40,7 @@ struct ConnectionConfig: Codable, Equatable {
     var httpAutoReconnect: Bool
 
     static let `default` = ConnectionConfig(
-        mode: .im,
-        imConnectCode: "",
-        imAutoReconnect: true,
+        mode: .ble,
         bleLastDeviceId: nil,
         bleAutoConnect: false,
         httpServerURL: "http://localhost:3001",

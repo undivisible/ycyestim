@@ -106,7 +106,6 @@ struct ControlDashboardView: View {
 
     private var connectionStatusColor: Color {
         switch settingsVM.connectionConfig.mode {
-        case .im: return .blue
         case .ble: return .green
         case .http: return .orange
         }
@@ -124,6 +123,12 @@ struct ControlDashboardView: View {
                 Text(controlVM.isSessionActive ? controlVM.sessionElapsedFormatted : "Tap start to begin")
                     .font(.system(.title2, design: .monospaced))
                     .foregroundColor(controlVM.isSessionActive ? .primary : .secondary)
+
+                if settingsVM.heartRateSafetyConfig.isEnabled {
+                    Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()
@@ -335,7 +340,7 @@ struct ControlDashboardView: View {
 
             Slider(value: $controlVM.intensityBoost, in: -20...20, step: 1)
                 .tint(.orange)
-                .onChange(of: controlVM.intensityBoost) { newValue in
+                .onChange(of: controlVM.intensityBoost) { _, newValue in
                     controlVM.applyIntensityBoost(newValue)
                 }
 
@@ -407,15 +412,6 @@ struct ConnectionSetupView: View {
                 }
 
                 switch settingsVM.connectionConfig.mode {
-                case .im:
-                    Section("Tencent IM") {
-                        TextField("Connect Code (UID TOKEN)", text: $settingsVM.connectionConfig.imConnectCode)
-                            .textInputAutocapitalization(.never)
-                        Text("Get this from the YCY app → Start Game → Copy connection code")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Toggle("Auto Reconnect", isOn: $settingsVM.connectionConfig.imAutoReconnect)
-                    }
                 case .ble:
                     Section("Bluetooth") {
                         Toggle("Auto Connect Last Device", isOn: $settingsVM.connectionConfig.bleAutoConnect)

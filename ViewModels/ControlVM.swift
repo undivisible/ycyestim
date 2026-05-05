@@ -23,6 +23,8 @@ final class ControlVM: ObservableObject {
     @Published var waveformPoints: [Double] = []
     @Published var connectionStatus: ConnectionStatus = .disconnected
     @Published var isRamping: Bool = false
+    @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
+    @Published var heartRateAuthorizationError: String?
 
     enum ConnectionStatus {
         case disconnected, connecting, connected, error(String)
@@ -30,9 +32,9 @@ final class ControlVM: ObservableObject {
 
     // MARK: - Services
 
-    private let imService = IMService()
     private let bluetoothService = BluetoothService()
     private let httpService = HTTPService()
+    private let heartRateService = HealthKitHeartRateService()
     private let waveformEngine = WaveformEngine()
     let presetStore = PresetStore()
 
@@ -62,6 +64,11 @@ final class ControlVM: ObservableObject {
         max(channelA.strength, channelB.strength)
     }
 
+    var adaptiveStrengthLimit: Double {
+        guard let settingsVM else { return 100 }
+        return settingsVM.safetyConfig.maxStrength * heartRateSafetyState.strengthMultiplier
+    }
+
     // MARK: - Session Control
 
     func startSession() {
@@ -78,6 +85,7 @@ final class ControlVM: ObservableObject {
                 try await connectIfNeeded()
                 sessionState = .active(elapsedMs: 0, currentStep: 0)
                 startSessionTimer()
+                startHeartRateSafetyIfNeeded()
                 startRampIfNeeded()
                 try await applyCurrentSettings()
                 triggerHaptic(.medium)
@@ -90,14 +98,15 @@ final class ControlVM: ObservableObject {
 
     func stopSession() {
         sessionState = .stopping
-        let finalElapsed = sessionElapsedMs // capture BEFORE invalidating
+        let finalElapsed = sessionElapsedMs
         let finalMaxStrength = currentMaxStrength
         let finalPreset = activePreset
-        let mode = settingsVM?.connectionConfig.mode ?? .im
+        let mode = settingsVM?.connectionConfig.mode ?? .ble
         let startTime = sessionStartTime
 
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
+        stopHeartRateSafety()
 
         Task {
             try? await sendEmergencyStop()
@@ -107,8 +116,8 @@ final class ControlVM: ObservableObject {
                 startTime: startTime,
                 endTime: .now,
                 durationMs: finalElapsed,
-                maxStrengthReached: finalMaxStrength,
                 presetsUsed: finalPreset.map { [$0.name] } ?? [],
+                maxStrengthReached: finalMaxStrength,
                 mode: mode
             )
             presetStore.saveSession(record)
@@ -139,6 +148,7 @@ final class ControlVM: ObservableObject {
         sessionState = .emergencyStopped
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
+        stopHeartRateSafety()
 
         triggerHaptic(.heavy)
         try await sendEmergencyStop()
@@ -251,19 +261,12 @@ final class ControlVM: ObservableObject {
     private func connectIfNeeded() async throws {
         guard let settings = settingsVM else { return }
         switch settings.connectionConfig.mode {
-        case .im:
-            let state = await imService.connectionState
-            if state == .disconnected && !settings.connectionConfig.imConnectCode.isEmpty {
-                connectionStatus = .connecting
-                try await imService.authenticate(connectCode: settings.connectionConfig.imConnectCode)
-                connectionStatus = .connected
-            }
         case .ble:
             connectionStatus = .connecting
             connectionStatus = .connected
         case .http:
             connectionStatus = .connecting
-            httpService.connect(url: settings.connectionConfig.httpServerURL)
+            await httpService.connect(url: settings.connectionConfig.httpServerURL)
             connectionStatus = .connected
         }
     }
@@ -279,11 +282,9 @@ final class ControlVM: ObservableObject {
 
     private func applyChannelCommand(_ channel: String, state: ChannelState) async throws {
         guard let settings = settingsVM else { return }
-        let strength = Int(min(state.strength, settings.safetyConfig.maxStrength))
+        let strength = Int(min(state.strength, adaptiveStrengthLimit))
 
         switch settings.connectionConfig.mode {
-        case .im:
-            try await imService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         case .ble:
             try await bluetoothService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         case .http:
@@ -294,7 +295,6 @@ final class ControlVM: ObservableObject {
     private func sendEmergencyStop() async throws {
         guard let settings = settingsVM else { return }
         switch settings.connectionConfig.mode {
-        case .im: try await imService.emergencyStop()
         case .ble: try await bluetoothService.emergencyStop()
         case .http: try await httpService.emergencyStop()
         }
@@ -305,6 +305,7 @@ final class ControlVM: ObservableObject {
         let config = settings.safetyConfig
 
         channel.strength = min(channel.strength, config.maxStrength)
+        channel.strength = min(channel.strength, adaptiveStrengthLimit)
 
         let chConfig = channel.id == .a ? settings.channelAConfig : settings.channelBConfig
         channel.strength = max(chConfig.minStrength, min(channel.strength, chConfig.maxStrength))
@@ -368,6 +369,60 @@ final class ControlVM: ObservableObject {
                     self.advanceProgramStep(program)
                 }
             }
+        }
+    }
+
+    func requestHeartRateAuthorization() async {
+        do {
+            try await heartRateService.requestAuthorization()
+            heartRateAuthorizationError = nil
+            if settingsVM?.heartRateSafetyConfig.isEnabled == true {
+                startHeartRateSafetyIfNeeded()
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+        }
+    }
+
+    private func startHeartRateSafetyIfNeeded() {
+        guard let settingsVM else { return }
+        guard settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring else {
+            heartRateSafetyState = .inactive
+            return
+        }
+
+        let policy = HeartRateSafetyPolicy(config: settingsVM.heartRateSafetyConfig)
+        do {
+            try heartRateService.startMonitoring { [weak self] bpm in
+                guard let self else { return }
+                self.heartRateSafetyState = policy.evaluate(bpm: bpm)
+                self.applyAdaptiveHeartRateLimits()
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+        }
+    }
+
+    private func applyAdaptiveHeartRateLimits() {
+        guard let settingsVM else { return }
+        channelA.strength = min(channelA.strength, adaptiveStrengthLimit)
+        channelB.strength = min(channelB.strength, adaptiveStrengthLimit)
+
+        if case .critical = heartRateSafetyState,
+           settingsVM.heartRateSafetyConfig.emergencyStopOnCritical,
+           isSessionActive {
+            Task { try? await emergencyStop() }
+        } else if isSessionActive && !isPaused {
+            Task { try? await applyCurrentSettings() }
+        }
+    }
+
+    private func stopHeartRateSafety() {
+        heartRateService.stopMonitoring()
+        if settingsVM?.heartRateSafetyConfig.isEnabled != true {
+            heartRateSafetyState = .inactive
         }
     }
 

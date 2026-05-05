@@ -115,6 +115,14 @@ struct SessionLiveView: View {
 
             Spacer()
 
+            if settingsVM.heartRateSafetyConfig.isEnabled {
+                Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
+                    .font(.caption)
+                    .foregroundColor(heartRateColor)
+            }
+
+            Spacer()
+
             // Connection mode
             Image(systemName: settingsVM.connectionConfig.mode.icon)
                 .font(.subheadline)
@@ -124,6 +132,21 @@ struct SessionLiveView: View {
         .padding(.horizontal, 16)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var heartRateColor: Color {
+        switch controlVM.heartRateSafetyState {
+        case .critical:
+            return .red
+        case .high:
+            return .orange
+        case .elevated:
+            return .yellow
+        case .monitoring:
+            return .green
+        case .inactive, .unavailable, .needsAuthorization:
+            return .secondary
+        }
     }
 
     // MARK: - Channel Live Meter

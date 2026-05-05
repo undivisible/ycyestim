@@ -2,10 +2,11 @@ import Foundation
 import CoreBluetooth
 import Combine
 
-// MARK: - Bluetooth Service
+extension CBPeripheral: @unchecked @retroactive Sendable {}
+extension CBCharacteristic: @unchecked @retroactive Sendable {}
 
-actor BluetoothService: NSObject {
-    // Published state for consumers
+@MainActor
+final class BluetoothService: NSObject {
     private var _peripherals: [BLEPeripheralInfo] = []
     private var _peripheralMap: [UUID: CBPeripheral] = [:]
     private var centralManager: CBCentralManager?
@@ -147,47 +148,37 @@ extension BluetoothService: CBCentralManagerDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Deduplicate
-            var current = await self._peripherals
+            var current = self._peripherals
             current.removeAll { $0.id == info.id }
             current.append(info)
             current.sort { abs($0.rssi) < abs($1.rssi) }
-            await MainActor.run {
-                self._peripherals = current
-            }
-            await MainActor.run {
-                self._peripheralMap[peripheral.identifier] = peripheral
-                self.onDiscover?(current)
-                self.peripheralSubject.send(current)
-            }
+            self._peripherals = current
+            self._peripheralMap[peripheral.identifier] = peripheral
+            self.onDiscover?(current)
+            self.peripheralSubject.send(current)
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
                                      didConnect peripheral: CBPeripheral) {
-        peripheral.delegate = self as? CBPeripheralDelegate
-        peripheral.discoverServices(nil)
-        Task { @MainActor in
-            await MainActor.run {
-                self.isConnected = true
-            }
-            await MainActor.run {
-                self.connectionSubject.send(true)
-            }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.peripheral = peripheral
+            peripheral.delegate = self
+            peripheral.discoverServices(nil)
+            self.isConnected = true
+            self.connectionSubject.send(true)
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
                                      didDisconnectPeripheral peripheral: CBPeripheral,
                                      error: Error?) {
-        Task { @MainActor in
-            await MainActor.run {
-                self.isConnected = false
-            }
-            await MainActor.run {
-                self.peripheral = nil
-                self.connectionSubject.send(false)
-            }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isConnected = false
+            self.peripheral = nil
+            self.connectionSubject.send(false)
         }
     }
 }
@@ -211,12 +202,13 @@ extension BluetoothService: CBPeripheralDelegate {
                                  didDiscoverCharacteristicsFor service: CBService,
                                  error: Error?) {
         guard let chars = service.characteristics else { return }
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             for char in chars {
                 if char.uuid.uuidString.contains("FFE1") {
-                    await MainActor.run { self.characteristics["tx"] = char }
+                    self.characteristics["tx"] = char
                 } else if char.uuid.uuidString.contains("FFE2") {
-                    await MainActor.run { self.characteristics["rx"] = char }
+                    self.characteristics["rx"] = char
                     peripheral.setNotifyValue(true, for: char)
                 }
             }
@@ -228,15 +220,15 @@ extension BluetoothService: CBPeripheralDelegate {
                                  error: Error?) {
         guard let data = characteristic.value, let raw = String(data: data, encoding: .utf8) else { return }
 
-        Task { @MainActor in
-            // Parse device status updates
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             if raw.hasPrefix("BAT:") {
                 let level = Int(raw.dropFirst(4).trimmingCharacters(in: .whitespaces)) ?? 0
-                await MainActor.run { self._batteryLevel = level }
+                self._batteryLevel = level
                 self.batterySubject.send(level)
             } else if raw.hasPrefix("FW:") {
                 let version = String(raw.dropFirst(3).trimmingCharacters(in: .whitespaces))
-                await MainActor.run { self._firmwareVersion = version }
+                self._firmwareVersion = version
                 self.firmwareSubject.send(version)
             }
         }

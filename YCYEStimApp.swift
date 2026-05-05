@@ -12,7 +12,7 @@ struct YCYEStimApp: App {
                 .environmentObject(controlVM)
                 .environmentObject(settingsVM)
                 .environmentObject(deviceVM)
-                .glassBackgroundEffect(displayStyle: .automatic)
+                .glassBackgroundEffectCompat()
         }
     }
 }
