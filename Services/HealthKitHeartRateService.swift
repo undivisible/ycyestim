@@ -15,6 +15,11 @@ enum HeartRateServiceError: Error, LocalizedError {
     }
 }
 
+struct HeartRateReading: Equatable {
+    let bpm: Double
+    let sampleDate: Date
+}
+
 final class HealthKitHeartRateService: @unchecked Sendable {
     private let healthStore = HKHealthStore()
     private var query: HKAnchoredObjectQuery?
@@ -45,7 +50,7 @@ final class HealthKitHeartRateService: @unchecked Sendable {
         }
     }
 
-    func startMonitoring(onUpdate: @escaping @MainActor (Double) -> Void) throws {
+    func startMonitoring(onUpdate: @escaping @MainActor (HeartRateReading) -> Void) throws {
         guard isAvailable else {
             throw HeartRateServiceError.unavailable
         }
@@ -92,14 +97,15 @@ final class HealthKitHeartRateService: @unchecked Sendable {
         query = nil
     }
 
-    private static func emitLatestBPM(from samples: [HKSample]?, onUpdate: @escaping @MainActor (Double) -> Void) {
+    private static func emitLatestBPM(from samples: [HKSample]?, onUpdate: @escaping @MainActor (HeartRateReading) -> Void) {
         guard let sample = samples?.compactMap({ $0 as? HKQuantitySample }).max(by: { $0.endDate < $1.endDate }) else {
             return
         }
         let unit = HKUnit.count().unitDivided(by: .minute())
         let bpm = sample.quantity.doubleValue(for: unit)
+        let reading = HeartRateReading(bpm: bpm, sampleDate: sample.endDate)
         Task { @MainActor in
-            onUpdate(bpm)
+            onUpdate(reading)
         }
     }
 }

@@ -25,6 +25,7 @@ final class ControlVM: ObservableObject {
     @Published var isRamping: Bool = false
     @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
     @Published var edgeModeState: EdgeModeState = .inactive
+    @Published var latestHeartRateReading: HeartRateReading?
     @Published var heartRateAuthorizationError: String?
 
     enum ConnectionStatus {
@@ -46,6 +47,7 @@ final class ControlVM: ObservableObject {
     private var lastEdgeAdjustmentAt: Date?
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
+    private let liveHeartRateMaxAge: TimeInterval = 30
 
     // Retained haptic generators (prevent missed haptics)
     private let lightGen = UIImpactFeedbackGenerator(style: .light)
@@ -74,7 +76,27 @@ final class ControlVM: ObservableObject {
     }
 
     var currentHeartRateBPM: Double? {
-        heartRateSafetyState.bpm
+        isHeartRateLive ? latestHeartRateReading?.bpm : nil
+    }
+
+    var heartRateDisplayBPM: Double? {
+        latestHeartRateReading?.bpm
+    }
+
+    var isHeartRateLive: Bool {
+        guard let latestHeartRateReading else { return false }
+        return isFresh(latestHeartRateReading)
+    }
+
+    var heartRateSourceLabel: String {
+        guard let latestHeartRateReading else { return "No live HR" }
+        if isFresh(latestHeartRateReading) { return "Live HR" }
+
+        let ageSeconds = max(0, Int(Date().timeIntervalSince(latestHeartRateReading.sampleDate)))
+        if ageSeconds < 60 {
+            return "Stale \(ageSeconds)s"
+        }
+        return "Stale \(ageSeconds / 60)m"
     }
 
     // MARK: - Session Control
@@ -420,9 +442,9 @@ final class ControlVM: ObservableObject {
 
         let policy = HeartRateSafetyPolicy(config: settingsVM.heartRateSafetyConfig)
         do {
-            try heartRateService.startMonitoring { [weak self] bpm in
+            try heartRateService.startMonitoring { [weak self] reading in
                 guard let self else { return }
-                self.handleHeartRateUpdate(bpm, safetyPolicy: policy)
+                self.handleHeartRateUpdate(reading, safetyPolicy: policy)
             }
         } catch {
             heartRateAuthorizationError = error.localizedDescription
@@ -431,8 +453,17 @@ final class ControlVM: ObservableObject {
         }
     }
 
-    private func handleHeartRateUpdate(_ bpm: Double, safetyPolicy: HeartRateSafetyPolicy) {
+    private func handleHeartRateUpdate(_ reading: HeartRateReading, safetyPolicy: HeartRateSafetyPolicy) {
         guard let settingsVM else { return }
+        latestHeartRateReading = reading
+
+        guard isFresh(reading) else {
+            heartRateSafetyState = .stale(bpm: reading.bpm)
+            edgeModeState = settingsVM.edgeModeConfig.isEnabled ? .armed : .inactive
+            return
+        }
+
+        let bpm = reading.bpm
         if settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring {
             heartRateSafetyState = safetyPolicy.evaluate(bpm: bpm)
         } else {
@@ -495,6 +526,10 @@ final class ControlVM: ObservableObject {
         if settingsVM?.edgeModeConfig.isEnabled != true {
             edgeModeState = .inactive
         }
+    }
+
+    private func isFresh(_ reading: HeartRateReading) -> Bool {
+        Date().timeIntervalSince(reading.sampleDate) <= liveHeartRateMaxAge
     }
 
     private func advanceProgramStep(_ program: Program) {

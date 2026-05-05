@@ -84,6 +84,7 @@ enum HeartRateSafetyState: Equatable {
     case inactive
     case unavailable
     case needsAuthorization
+    case stale(bpm: Double)
     case monitoring(bpm: Double, multiplier: Double)
     case elevated(bpm: Double, multiplier: Double)
     case high(bpm: Double, multiplier: Double)
@@ -93,7 +94,7 @@ enum HeartRateSafetyState: Equatable {
         switch self {
         case .inactive, .unavailable, .needsAuthorization:
             return nil
-        case .monitoring(let bpm, _), .elevated(let bpm, _), .high(let bpm, _), .critical(let bpm):
+        case .stale(let bpm), .monitoring(let bpm, _), .elevated(let bpm, _), .high(let bpm, _), .critical(let bpm):
             return bpm
         }
     }
@@ -104,7 +105,7 @@ enum HeartRateSafetyState: Equatable {
             return multiplier
         case .critical:
             return 0
-        case .inactive, .unavailable, .needsAuthorization:
+        case .inactive, .unavailable, .needsAuthorization, .stale:
             return 1
         }
     }
@@ -117,6 +118,8 @@ enum HeartRateSafetyState: Equatable {
             return "Unavailable"
         case .needsAuthorization:
             return "Needs Permission"
+        case .stale(let bpm):
+            return "\(Int(bpm)) BPM Stale"
         case .monitoring(let bpm, _):
             return "\(Int(bpm)) BPM"
         case .elevated(let bpm, _):

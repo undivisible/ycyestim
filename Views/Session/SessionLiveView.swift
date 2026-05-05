@@ -148,7 +148,7 @@ struct SessionLiveView: View {
             return .yellow
         case .monitoring:
             return .green
-        case .inactive, .unavailable, .needsAuthorization:
+        case .inactive, .unavailable, .needsAuthorization, .stale:
             return .secondary
         }
     }

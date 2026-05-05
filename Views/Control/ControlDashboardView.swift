@@ -110,7 +110,7 @@ struct ControlDashboardView: View {
                     .trim(from: 0, to: heartRateProgress)
                     .stroke(edgeColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                Image(systemName: settingsVM.edgeModeConfig.isEnabled ? controlVM.edgeModeState.icon : "heart")
+                Image(systemName: biometricIcon)
                     .font(.title3)
                     .foregroundColor(edgeColor)
             }
@@ -121,6 +121,11 @@ struct ControlDashboardView: View {
                 .foregroundColor(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+            Text(controlVM.heartRateSourceLabel)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
     }
 
@@ -233,7 +238,7 @@ struct ControlDashboardView: View {
             dashboardTile("Boost", value: boostText, icon: "bolt.circle") {
                 showIntensitySettings = true
             }
-            dashboardTile("Biometrics", value: settingsVM.edgeModeConfig.isEnabled ? controlVM.edgeModeState.label : controlVM.heartRateSafetyState.label, icon: "heart.fill") {
+            dashboardTile("Biometrics", value: biometricTileValue, icon: "heart.fill") {
                 showEdgeSettings = true
             }
             dashboardTile("Device", value: settingsVM.connectionConfig.mode.rawValue, icon: settingsVM.connectionConfig.mode.icon) {
@@ -352,18 +357,22 @@ struct ControlDashboardView: View {
     }
 
     private var heartRateText: String {
-        guard let bpm = controlVM.currentHeartRateBPM else { return "-- BPM" }
+        guard let bpm = controlVM.heartRateDisplayBPM else { return "-- BPM" }
         return "\(Int(bpm)) BPM"
     }
 
     private var heartRateProgress: Double {
-        guard let bpm = controlVM.currentHeartRateBPM else { return 0.12 }
+        guard controlVM.isHeartRateLive, let bpm = controlVM.heartRateDisplayBPM else { return 0 }
         let minBPM = 60.0
         let maxBPM = max(settingsVM.edgeModeConfig.peakBPM, 150)
         return max(0.05, min(1, (bpm - minBPM) / (maxBPM - minBPM)))
     }
 
     private var edgeColor: Color {
+        guard controlVM.isHeartRateLive else {
+            return .secondary
+        }
+
         switch controlVM.edgeModeState {
         case .inactive, .armed:
             return settingsVM.edgeModeConfig.isEnabled ? .accentColor : .secondary
@@ -374,6 +383,18 @@ struct ControlDashboardView: View {
         case .easing:
             return .red
         }
+    }
+
+    private var biometricIcon: String {
+        guard controlVM.isHeartRateLive else { return "heart.slash" }
+        return settingsVM.edgeModeConfig.isEnabled ? controlVM.edgeModeState.icon : "heart"
+    }
+
+    private var biometricTileValue: String {
+        if settingsVM.edgeModeConfig.isEnabled, controlVM.isHeartRateLive {
+            return controlVM.edgeModeState.label
+        }
+        return controlVM.heartRateSourceLabel
     }
 
     private var boostText: String {
@@ -538,11 +559,30 @@ struct WaveformSettingsSheet: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var controlVM: ControlVM
     @State private var target: WaveformTarget = .both
+    @State private var previewWaveform: WaveformType = .pulse(count: .single)
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label(previewWaveform.name, systemImage: previewWaveform.icon)
+                                .font(.headline)
+                            Spacer()
+                            Text("\(Int(previewFrequency)) Hz")
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                        }
+
+                        WaveformMiniPreview(waveform: previewWaveform, frequency: previewFrequency)
+                            .frame(height: 82)
+                            .padding(.vertical, 6)
+                    }
+                    .padding(14)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+
                     if !controlVM.isSynced {
                         Picker("Channel", selection: $target) {
                             ForEach(WaveformTarget.allCases) { target in
@@ -556,6 +596,7 @@ struct WaveformSettingsSheet: View {
                         ForEach(WaveformType.allBuiltIn) { waveform in
                             Button {
                                 apply(waveform)
+                                previewWaveform = waveform
                             } label: {
                                 VStack(spacing: 8) {
                                     Image(systemName: waveform.icon)
@@ -580,6 +621,12 @@ struct WaveformSettingsSheet: View {
             }
             .navigationTitle("Waveforms")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                previewWaveform = selectedWaveform
+            }
+            .onChange(of: target) {
+                previewWaveform = selectedWaveform
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -611,6 +658,26 @@ struct WaveformSettingsSheet: View {
             return controlVM.channelA.waveform == waveform
         case .channelB:
             return controlVM.channelB.waveform == waveform
+        }
+    }
+
+    private var selectedWaveform: WaveformType {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both, .channelA:
+            return controlVM.channelA.waveform
+        case .channelB:
+            return controlVM.channelB.waveform
+        }
+    }
+
+    private var previewFrequency: Double {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both, .channelA:
+            return controlVM.channelA.frequency
+        case .channelB:
+            return controlVM.channelB.frequency
         }
     }
 }

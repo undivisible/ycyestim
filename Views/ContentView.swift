@@ -15,17 +15,9 @@ struct ContentView: View {
                 ControlDashboardView()
                     .tabItem { Label("Control", systemImage: "bolt.fill") }
 
-                PresetBrowserView()
-                    .environmentObject(presetStore)
-                    .tabItem { Label("Presets", systemImage: "square.stack.fill") }
-
                 ProgramEditorView()
                     .environmentObject(presetStore)
                     .tabItem { Label("Programs", systemImage: "timeline.selection") }
-
-                SessionHistoryView()
-                    .environmentObject(presetStore)
-                    .tabItem { Label("History", systemImage: "clock.fill") }
 
                 SettingsView()
                     .environmentObject(deviceVM)
