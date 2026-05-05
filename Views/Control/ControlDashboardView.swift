@@ -238,7 +238,7 @@ struct ControlDashboardView: View {
 
     private var syncToggle: some View {
         HStack {
-            Image(systemName: controlVM.isSynced ? "link" : "link.break")
+            Image(systemName: controlVM.isSynced ? "link" : "xmark.circle")
                 .foregroundColor(controlVM.isSynced ? .green : .secondary)
             Text("Channels synced")
                 .font(.subheadline)

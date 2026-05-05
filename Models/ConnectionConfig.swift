@@ -12,7 +12,7 @@ enum ConnectionMode: String, Codable, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .ble: return "bluetooth"
+        case .ble: return "antenna.radiowaves.left.and.right"
         case .http: return "server.rack"
         }
     }

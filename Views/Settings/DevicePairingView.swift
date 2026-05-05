@@ -28,7 +28,7 @@ struct DevicePairingView: View {
                             deviceVM.connect(to: peripheral)
                         } label: {
                             HStack {
-                                Image(systemName: "bluetooth")
+                                Image(systemName: "antenna.radiowaves.left.and.right")
                                     .foregroundColor(.accentColor)
                                 VStack(alignment: .leading) {
                                     Text(peripheral.name)
