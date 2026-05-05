@@ -1,0 +1,181 @@
+{
+  "presets": [
+    {
+      "id": "warmup",
+      "name": "Warm-up",
+      "icon": "flame.fill",
+      "color": "#FF9F0A",
+      "channelA": {
+        "strength": 15,
+        "waveform": { "type": "pulse", "count": 1 },
+        "frequency": 10,
+        "pulseWidth": 150,
+        "phaseOffset": 0,
+        "durationMs": 60000
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "training",
+      "name": "Training",
+      "icon": "target",
+      "color": "#30D158",
+      "channelA": {
+        "strength": 30,
+        "waveform": { "type": "pulse", "count": 2 },
+        "frequency": 20,
+        "pulseWidth": 200,
+        "phaseOffset": 0,
+        "durationMs": 120000
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "play",
+      "name": "Play",
+      "icon": "gamecontroller.fill",
+      "color": "#BF5AF2",
+      "channelA": {
+        "strength": 40,
+        "waveform": { "type": "sine" },
+        "frequency": 25,
+        "pulseWidth": 200,
+        "phaseOffset": 0,
+        "durationMs": 0
+      },
+      "channelB": {
+        "strength": 35,
+        "waveform": { "type": "triangle" },
+        "frequency": 25,
+        "pulseWidth": 200,
+        "phaseOffset": 90,
+        "durationMs": 0
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "edge",
+      "name": "Edge",
+      "icon": "sparkles",
+      "color": "#FF6B6B",
+      "channelA": {
+        "strength": 55,
+        "waveform": { "type": "pulse", "count": 3 },
+        "frequency": 30,
+        "pulseWidth": 250,
+        "phaseOffset": 0,
+        "durationMs": 0
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "tease",
+      "name": "Tease",
+      "icon": "bolt.heart.fill",
+      "color": "#FF375F",
+      "channelA": {
+        "strength": 20,
+        "waveform": { "type": "random" },
+        "frequency": 15,
+        "pulseWidth": 150,
+        "phaseOffset": 0,
+        "durationMs": 0
+      },
+      "channelB": {
+        "strength": 15,
+        "waveform": { "type": "rampUp" },
+        "frequency": 10,
+        "pulseWidth": 200,
+        "phaseOffset": 0,
+        "durationMs": 30000
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "deep",
+      "name": "Deep Pulse",
+      "icon": "waveform.path.ecg",
+      "color": "#64D2FF",
+      "channelA": {
+        "strength": 45,
+        "waveform": { "type": "square" },
+        "frequency": 5,
+        "pulseWidth": 500,
+        "phaseOffset": 0,
+        "durationMs": 0
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "intensity",
+      "name": "Intensity",
+      "icon": "bolt.fill",
+      "color": "#FF453A",
+      "channelA": {
+        "strength": 70,
+        "waveform": { "type": "pulse", "count": 4 },
+        "frequency": 40,
+        "pulseWidth": 300,
+        "phaseOffset": 0,
+        "durationMs": 60000
+      },
+      "channelB": {
+        "strength": 65,
+        "waveform": { "type": "pulse", "count": 4 },
+        "frequency": 40,
+        "pulseWidth": 300,
+        "phaseOffset": 180,
+        "durationMs": 60000
+      },
+      "isBuiltin": true
+    },
+    {
+      "id": "relaxation",
+      "name": "Relaxation",
+      "icon": "leaf.fill",
+      "color": "#30D158",
+      "channelA": {
+        "strength": 10,
+        "waveform": { "type": "sine" },
+        "frequency": 1,
+        "pulseWidth": 400,
+        "phaseOffset": 0,
+        "durationMs": 300000
+      },
+      "isBuiltin": true
+    }
+  ],
+  "programs": [
+    {
+      "id": "warmup-progression",
+      "name": "Warm-up Progression",
+      "icon": "arrow.up.right",
+      "color": "#FF9F0A",
+      "steps": [
+        { "timeOffset": 0, "strength": 10, "waveform": { "type": "sine" }, "frequency": 5, "pulseWidth": 100, "durationMs": 60000 },
+        { "timeOffset": 60000, "strength": 20, "waveform": { "type": "pulse", "count": 1 }, "frequency": 10, "pulseWidth": 150, "durationMs": 60000 },
+        { "timeOffset": 120000, "strength": 30, "waveform": { "type": "pulse", "count": 2 }, "frequency": 15, "pulseWidth": 200, "durationMs": 60000 },
+        { "timeOffset": 180000, "strength": 20, "waveform": { "type": "sine" }, "frequency": 10, "pulseWidth": 200, "durationMs": 60000 }
+      ],
+      "loopCount": 0,
+      "autoProgress": true,
+      "transitionSmoothness": 0.8
+    },
+    {
+      "id": "interval-training",
+      "name": "Interval Training",
+      "icon": "stopwatch.fill",
+      "color": "#FF375F",
+      "steps": [
+        { "timeOffset": 0, "strength": 20, "waveform": { "type": "sine" }, "frequency": 10, "pulseWidth": 150, "durationMs": 30000 },
+        { "timeOffset": 30000, "strength": 60, "waveform": { "type": "pulse", "count": 4 }, "frequency": 35, "pulseWidth": 250, "durationMs": 15000 },
+        { "timeOffset": 45000, "strength": 15, "waveform": { "type": "sine" }, "frequency": 5, "pulseWidth": 100, "durationMs": 30000 },
+        { "timeOffset": 75000, "strength": 65, "waveform": { "type": "pulse", "count": 4 }, "frequency": 40, "pulseWidth": 300, "durationMs": 15000 }
+      ],
+      "loopCount": 3,
+      "autoProgress": true,
+      "transitionSmoothness": 0.6,
+      "pauseBetweenSteps": 2000
+    }
+  ]
+}
