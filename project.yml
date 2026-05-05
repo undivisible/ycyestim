@@ -57,7 +57,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: "YCYEStim"
-        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.ycy
+        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.estim
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: "Info.plist"
         CODE_SIGN_ENTITLEMENTS: "YCYEStim.entitlements"
@@ -98,7 +98,7 @@ targets:
       - target: YCYEStim
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.ycy.tests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.estim.tests
         GENERATE_INFOPLIST_FILE: true
         INFOPLIST_KEY_CFBundleDisplayName: "YCYEStim Tests"
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
