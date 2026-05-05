@@ -115,7 +115,11 @@ struct SessionLiveView: View {
 
             Spacer()
 
-            if settingsVM.heartRateSafetyConfig.isEnabled {
+            if settingsVM.edgeModeConfig.isEnabled {
+                Label(controlVM.edgeModeState.label, systemImage: controlVM.edgeModeState.icon)
+                    .font(.caption)
+                    .foregroundColor(heartRateColor)
+            } else if settingsVM.heartRateSafetyConfig.isEnabled {
                 Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
                     .font(.caption)
                     .foregroundColor(heartRateColor)
@@ -387,7 +391,7 @@ struct LiveWaveformView: View {
             )
         }
         .task {
-            let generated = await engine.generate(waveform, samples: 300, frequency: frequency)
+            let generated = await engine.generate(waveform, samples: 160, frequency: frequency)
             points = generated
         }
         .onAppear {
@@ -397,7 +401,7 @@ struct LiveWaveformView: View {
         }
         .onChange(of: waveform) {
             Task {
-                let generated = await engine.generate(waveform, samples: 300, frequency: frequency)
+                let generated = await engine.generate(waveform, samples: 160, frequency: frequency)
                 points = generated
             }
         }

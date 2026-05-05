@@ -50,4 +50,51 @@ final class HeartRateSafetyPolicyTests: XCTestCase {
         XCTAssertEqual(policy.evaluate(bpm: 110).strengthMultiplier, 1)
         XCTAssertEqual(policy.evaluate(bpm: 140).strengthMultiplier, 0)
     }
+
+    func testEdgeModeBuildsBelowTarget() {
+        let policy = EdgeModePolicy(config: enabledEdgeConfig)
+
+        let state = policy.evaluate(bpm: 90, currentStrength: 20)
+
+        XCTAssertEqual(state, .building(bpm: 90, targetStrength: 23))
+    }
+
+    func testEdgeModeHoldsAtTarget() {
+        let policy = EdgeModePolicy(config: enabledEdgeConfig)
+
+        let state = policy.evaluate(bpm: 125, currentStrength: 32)
+
+        XCTAssertEqual(state, .holding(bpm: 125, targetStrength: 32))
+    }
+
+    func testEdgeModeEasesAtPeak() {
+        let policy = EdgeModePolicy(config: enabledEdgeConfig)
+
+        let state = policy.evaluate(bpm: 145, currentStrength: 42)
+
+        XCTAssertEqual(state, .easing(bpm: 145, targetStrength: 38))
+    }
+
+    func testEdgeModeStaysWithinConfiguredBounds() {
+        let config = EdgeModeConfig(
+            isEnabled: true,
+            targetBPM: 120,
+            peakBPM: 130,
+            recoveryBPM: 95,
+            minStrength: 10,
+            maxStrength: 30,
+            rampStep: 4,
+            cooldownSeconds: 5
+        )
+        let policy = EdgeModePolicy(config: config)
+
+        XCTAssertEqual(policy.evaluate(bpm: 80, currentStrength: 29), .building(bpm: 80, targetStrength: 30))
+        XCTAssertEqual(policy.evaluate(bpm: 140, currentStrength: 12), .easing(bpm: 140, targetStrength: 10))
+    }
+
+    private var enabledEdgeConfig: EdgeModeConfig {
+        var config = EdgeModeConfig.default
+        config.isEnabled = true
+        return config
+    }
 }

@@ -24,6 +24,7 @@ final class ControlVM: ObservableObject {
     @Published var connectionStatus: ConnectionStatus = .disconnected
     @Published var isRamping: Bool = false
     @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
+    @Published var edgeModeState: EdgeModeState = .inactive
     @Published var heartRateAuthorizationError: String?
 
     enum ConnectionStatus {
@@ -42,6 +43,7 @@ final class ControlVM: ObservableObject {
     private var rampTimer: Timer?
     private var waveformPreviewTask: Task<Void, Never>?
     private var appliedIntensityBoost: Double = 0
+    private var lastEdgeAdjustmentAt: Date?
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
 
@@ -69,6 +71,10 @@ final class ControlVM: ObservableObject {
     var adaptiveStrengthLimit: Double {
         guard let settingsVM else { return 100 }
         return settingsVM.safetyConfig.maxStrength * heartRateSafetyState.strengthMultiplier
+    }
+
+    var currentHeartRateBPM: Double? {
+        heartRateSafetyState.bpm
     }
 
     // MARK: - Session Control
@@ -110,6 +116,7 @@ final class ControlVM: ObservableObject {
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
         stopHeartRateSafety()
+        edgeModeState = .inactive
 
         Task {
             try? await sendEmergencyStop()
@@ -153,6 +160,7 @@ final class ControlVM: ObservableObject {
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
         stopHeartRateSafety()
+        edgeModeState = .inactive
 
         triggerHaptic(.heavy)
         try await sendEmergencyStop()
@@ -393,7 +401,7 @@ final class ControlVM: ObservableObject {
         do {
             try await heartRateService.requestAuthorization()
             heartRateAuthorizationError = nil
-            if settingsVM?.heartRateSafetyConfig.isEnabled == true {
+            if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
                 startHeartRateSafetyIfNeeded()
             }
         } catch {
@@ -404,8 +412,9 @@ final class ControlVM: ObservableObject {
 
     private func startHeartRateSafetyIfNeeded() {
         guard let settingsVM else { return }
-        guard settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring else {
+        guard settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring || settingsVM.edgeModeConfig.isEnabled else {
             heartRateSafetyState = .inactive
+            edgeModeState = .inactive
             return
         }
 
@@ -413,12 +422,54 @@ final class ControlVM: ObservableObject {
         do {
             try heartRateService.startMonitoring { [weak self] bpm in
                 guard let self else { return }
-                self.heartRateSafetyState = policy.evaluate(bpm: bpm)
-                self.applyAdaptiveHeartRateLimits()
+                self.handleHeartRateUpdate(bpm, safetyPolicy: policy)
             }
         } catch {
             heartRateAuthorizationError = error.localizedDescription
             heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+            edgeModeState = .inactive
+        }
+    }
+
+    private func handleHeartRateUpdate(_ bpm: Double, safetyPolicy: HeartRateSafetyPolicy) {
+        guard let settingsVM else { return }
+        if settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring {
+            heartRateSafetyState = safetyPolicy.evaluate(bpm: bpm)
+        } else {
+            heartRateSafetyState = .monitoring(bpm: bpm, multiplier: 1)
+        }
+        applyEdgeModeIfNeeded(bpm: bpm)
+        applyAdaptiveHeartRateLimits()
+    }
+
+    private func applyEdgeModeIfNeeded(bpm: Double) {
+        guard let settingsVM, settingsVM.edgeModeConfig.isEnabled else {
+            edgeModeState = .inactive
+            return
+        }
+
+        let policy = EdgeModePolicy(config: settingsVM.edgeModeConfig)
+        let state = policy.evaluate(bpm: bpm, currentStrength: currentMaxStrength)
+        edgeModeState = isSessionActive && !isPaused ? state : .armed
+
+        guard isSessionActive, !isPaused, let targetStrength = state.targetStrength else { return }
+        if let lastEdgeAdjustmentAt,
+           Date().timeIntervalSince(lastEdgeAdjustmentAt) < settingsVM.edgeModeConfig.cooldownSeconds {
+            return
+        }
+
+        lastEdgeAdjustmentAt = .now
+        let target = min(targetStrength, adaptiveStrengthLimit)
+        let delta = target - currentMaxStrength
+
+        updateChannelA { channel in
+            channel.strength = max(0, min(100, channel.strength + delta))
+        }
+
+        if !isSynced {
+            updateChannelB { channel in
+                channel.strength = max(0, min(100, channel.strength + delta))
+            }
         }
     }
 
@@ -440,6 +491,9 @@ final class ControlVM: ObservableObject {
         heartRateService.stopMonitoring()
         if settingsVM?.heartRateSafetyConfig.isEnabled != true {
             heartRateSafetyState = .inactive
+        }
+        if settingsVM?.edgeModeConfig.isEnabled != true {
+            edgeModeState = .inactive
         }
     }
 

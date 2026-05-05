@@ -58,6 +58,28 @@ struct HeartRateSafetyConfig: Codable, Equatable {
     )
 }
 
+struct EdgeModeConfig: Codable, Equatable {
+    var isEnabled: Bool
+    var targetBPM: Double
+    var peakBPM: Double
+    var recoveryBPM: Double
+    var minStrength: Double
+    var maxStrength: Double
+    var rampStep: Double
+    var cooldownSeconds: Double
+
+    static let `default` = EdgeModeConfig(
+        isEnabled: false,
+        targetBPM: 118,
+        peakBPM: 138,
+        recoveryBPM: 96,
+        minStrength: 14,
+        maxStrength: 58,
+        rampStep: 2,
+        cooldownSeconds: 8
+    )
+}
+
 enum HeartRateSafetyState: Equatable {
     case inactive
     case unavailable
@@ -107,6 +129,53 @@ enum HeartRateSafetyState: Equatable {
     }
 }
 
+enum EdgeModeState: Equatable {
+    case inactive
+    case armed
+    case building(bpm: Double, targetStrength: Double)
+    case holding(bpm: Double, targetStrength: Double)
+    case easing(bpm: Double, targetStrength: Double)
+
+    var label: String {
+        switch self {
+        case .inactive:
+            return "Edge Off"
+        case .armed:
+            return "Edge Armed"
+        case .building(let bpm, _):
+            return "\(Int(bpm)) BPM Building"
+        case .holding(let bpm, _):
+            return "\(Int(bpm)) BPM Holding"
+        case .easing(let bpm, _):
+            return "\(Int(bpm)) BPM Easing"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .inactive:
+            return "heart"
+        case .armed:
+            return "heart.circle"
+        case .building:
+            return "arrow.up.circle"
+        case .holding:
+            return "heart.fill"
+        case .easing:
+            return "arrow.down.circle"
+        }
+    }
+
+    var targetStrength: Double? {
+        switch self {
+        case .inactive, .armed:
+            return nil
+        case .building(_, let targetStrength), .holding(_, let targetStrength), .easing(_, let targetStrength):
+            return targetStrength
+        }
+    }
+}
+
 struct HeartRateSafetyPolicy {
     let config: HeartRateSafetyConfig
 
@@ -125,5 +194,34 @@ struct HeartRateSafetyPolicy {
 
     private func clamped(_ multiplier: Double) -> Double {
         max(0, min(1, multiplier))
+    }
+}
+
+struct EdgeModePolicy {
+    let config: EdgeModeConfig
+
+    func evaluate(bpm: Double, currentStrength: Double) -> EdgeModeState {
+        guard config.isEnabled else { return .inactive }
+
+        let boundedCurrent = clamped(currentStrength)
+        let targetBPM = config.targetBPM
+        let peakBPM = max(config.peakBPM, targetBPM + 1)
+        let recoveryBPM = min(config.recoveryBPM, targetBPM - 1)
+
+        if bpm >= peakBPM {
+            let target = clamped(boundedCurrent - config.rampStep * 2)
+            return .easing(bpm: bpm, targetStrength: target)
+        }
+        if bpm >= targetBPM {
+            return .holding(bpm: bpm, targetStrength: boundedCurrent)
+        }
+
+        let multiplier = bpm < recoveryBPM ? 1.5 : 1
+        let target = clamped(boundedCurrent + config.rampStep * multiplier)
+        return .building(bpm: bpm, targetStrength: target)
+    }
+
+    private func clamped(_ strength: Double) -> Double {
+        max(config.minStrength, min(config.maxStrength, strength))
     }
 }

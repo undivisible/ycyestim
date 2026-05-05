@@ -136,6 +136,7 @@ struct SettingsView: View {
 
                 Section {
                     Toggle("Adaptive Heart Rate Safety", isOn: $settingsVM.heartRateSafetyConfig.isEnabled)
+                    Toggle("Edge Mode", isOn: $settingsVM.edgeModeConfig.isEnabled)
 
                     HStack {
                         Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
@@ -189,6 +190,28 @@ struct SettingsView: View {
                     }
 
                     Toggle("Emergency Stop at Critical", isOn: $settingsVM.heartRateSafetyConfig.emergencyStopOnCritical)
+
+                    LabeledContent("Edge Target") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.targetBPM)) BPM",
+                                value: $settingsVM.edgeModeConfig.targetBPM,
+                                in: 80...180,
+                                step: 1)
+                    }
+
+                    LabeledContent("Edge Peak") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.peakBPM)) BPM",
+                                value: $settingsVM.edgeModeConfig.peakBPM,
+                                in: 90...205,
+                                step: 1)
+                    }
+
+                    LabeledContent("Edge Ceiling") {
+                        Slider(value: $settingsVM.edgeModeConfig.maxStrength, in: settingsVM.edgeModeConfig.minStrength...80, step: 1)
+                    }
+
+                    LabeledContent("Edge Step") {
+                        Slider(value: $settingsVM.edgeModeConfig.rampStep, in: 0.5...6, step: 0.5)
+                    }
                 } header: {
                     Label("Biometrics", systemImage: "heart.text.square.fill")
                 }
@@ -308,6 +331,7 @@ struct SettingsView: View {
             .onChange(of: settingsVM.appearanceConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.notificationConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.heartRateSafetyConfig) { settingsVM.saveAll() }
+            .onChange(of: settingsVM.edgeModeConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.channelAConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.channelBConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.programConfig) { settingsVM.saveAll() }

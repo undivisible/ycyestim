@@ -1,7 +1,5 @@
 import SwiftUI
 
-// MARK: - Control Dashboard View (Polished)
-
 struct ControlDashboardView: View {
     @EnvironmentObject var controlVM: ControlVM
     @EnvironmentObject var settingsVM: SettingsVM
@@ -12,28 +10,30 @@ struct ControlDashboardView: View {
     @State private var showSyncedChannelDetail = false
     @State private var showWaveformSettings = false
     @State private var showIntensitySettings = false
+    @State private var showEdgeSettings = false
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                connectionStatusBar
-                sessionHeader
-                if controlVM.isSynced {
-                    syncedChannelCard
-                } else {
-                    HStack(spacing: 10) {
-                        channelCard(channel: controlVM.channelA, isA: true)
-                        channelCard(channel: controlVM.channelB, isA: false)
-                    }
-                }
-                settingsRows
-                waveformPreview
-                quickPresetsRow
+            VStack(spacing: 14) {
+                liveHeader
+                modeSwitch
+                outputConsole
+                controlTiles
+                waveformStage
+                presetRail
                 sessionControlButton
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
         }
+        .background(
+            LinearGradient(
+                colors: [Color(.systemBackground), Color(.secondarySystemBackground)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
         .navigationTitle("Control")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showQuickPresets) {
@@ -57,12 +57,14 @@ struct ControlDashboardView: View {
         .sheet(isPresented: $showIntensitySettings) {
             IntensitySettingsSheet()
         }
+        .sheet(isPresented: $showEdgeSettings) {
+            EdgeModeSettingsSheet()
+        }
         .alert("Safety Warning", isPresented: $controlVM.showSafetyWarning) {
             Button("Continue") {
                 controlVM.showSafetyWarning = false
             }
             Button("Cancel", role: .cancel) {
-                // Revert strength
                 controlVM.updateChannelA { $0.strength = settingsVM.safetyConfig.confirmationThreshold }
                 controlVM.showSafetyWarning = false
             }
@@ -71,290 +73,224 @@ struct ControlDashboardView: View {
         }
     }
 
-    // MARK: - Connection Status Bar
+    private var liveHeader: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(controlVM.isSessionActive ? "Live Output" : "Ready")
+                    .font(.title2.bold())
+                Text(controlVM.isSessionActive ? controlVM.sessionElapsedFormatted : "Local control, no cloud relay")
+                    .font(controlVM.isSessionActive ? .system(.title3, design: .monospaced, weight: .semibold) : .subheadline)
+                    .foregroundColor(.secondary)
 
-    private var connectionStatusBar: some View {
-        HStack {
-            Button {
-                showConnectionSetup = true
-            } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: settingsVM.connectionConfig.mode.icon)
-                        .foregroundColor(connectionStatusColor)
-                    Text(settingsVM.connectionConfig.mode.rawValue)
-                        .font(.subheadline)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Label(settingsVM.connectionConfig.mode.rawValue, systemImage: settingsVM.connectionConfig.mode.icon)
+                    if let preset = controlVM.activePreset {
+                        Label(preset.name, systemImage: preset.icon)
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
             }
 
             Spacer()
 
-            if let device = controlVM.presetStore.sessions.first {
-                Label("\(device.durationMs / 60_000)m total", systemImage: "clock")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            biometricDial
         }
-    }
-
-    private var connectionStatusColor: Color {
-        switch settingsVM.connectionConfig.mode {
-        case .ble: return .green
-        case .http: return .orange
-        }
-    }
-
-    // MARK: - Session Header
-
-    private var sessionHeader: some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(controlVM.isSessionActive ? "Session Active" : "Ready")
-                    .font(.headline)
-                    .foregroundColor(controlVM.isSessionActive ? .green : .secondary)
-
-                Text(controlVM.isSessionActive ? controlVM.sessionElapsedFormatted : "Tap start to begin")
-                    .font(.system(.title2, design: .monospaced))
-                    .foregroundColor(controlVM.isSessionActive ? .primary : .secondary)
-
-                if settingsVM.heartRateSafetyConfig.isEnabled {
-                    Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            if let preset = controlVM.activePreset {
-                Label(preset.name, systemImage: preset.icon)
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color(hex: preset.color).opacity(0.2))
-                    .clipShape(Capsule())
-            }
-        }
-        .padding(12)
+        .padding(16)
         .glassCard()
     }
 
-    // MARK: - Channel Card
-
-    private func channelCard(channel: ChannelState, isA: Bool) -> some View {
-        VStack(spacing: 8) {
-            // Header with toggle
-            HStack {
-                Text("Channel \(channel.id.label)")
-                    .font(.headline)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { channel.isEnabled },
-                    set: { value in
-                        if isA {
-                            controlVM.updateChannelA { $0.isEnabled = value }
-                        } else {
-                            controlVM.updateChannelB { $0.isEnabled = value }
-                        }
-                    }
-                ))
-                .tint(.green)
+    private var biometricDial: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 8)
+                Circle()
+                    .trim(from: 0, to: heartRateProgress)
+                    .stroke(edgeColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: settingsVM.edgeModeConfig.isEnabled ? controlVM.edgeModeState.icon : "heart")
+                    .font(.title3)
+                    .foregroundColor(edgeColor)
             }
+            .frame(width: 58, height: 58)
 
-            // Strength with large display
-            VStack(spacing: 4) {
-                Text("\(Int(channel.strength))%")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundColor(isA ? .blue : .purple)
-
-                Slider(value: Binding(
-                    get: { channel.strength },
-                    set: { controlVM.setChannelStrength(channel.id, $0) }
-                ), in: 0...100)
-                .tint(isA ? .blue : .purple)
-            }
-
-            // Mini waveform preview
-            WaveformMiniPreview(waveform: channel.waveform, frequency: channel.frequency)
-                .frame(height: 24)
-
-            // Info row
-            HStack {
-                Label("\(Int(channel.frequency)) Hz", systemImage: "waveform")
-                    .font(.caption)
-                    .lineLimit(1)
-                Spacer()
-                Label("\(channel.pulseWidth)μs", systemImage: "ruler")
-                    .font(.caption)
-                    .lineLimit(1)
-            }
-            .foregroundColor(.secondary)
-
-            // Detail button
-            Button("Details") {
-                if isA { showChannelDetailA = true }
-                else { showChannelDetailB = true }
-            }
-            .buttonStyle(.bordered)
-            .font(.caption)
-            .tint(.secondary)
+            Text(heartRateText)
+                .font(.caption.monospacedDigit())
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
-        .padding(12)
-        .glassCard()
     }
 
-    private var syncedChannelCard: some View {
-        VStack(spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Channels A+B")
-                        .font(.headline)
-                    Text("Synced output")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { controlVM.channelA.isEnabled || controlVM.channelB.isEnabled },
-                    set: { enabled in
-                        controlVM.updateChannelA { $0.isEnabled = enabled }
-                        controlVM.updateChannelB { $0.isEnabled = enabled }
-                    }
-                ))
-                .tint(.green)
+    private var modeSwitch: some View {
+        HStack(spacing: 8) {
+            modeButton(title: "Manual", icon: "slider.horizontal.3", isActive: !settingsVM.edgeModeConfig.isEnabled) {
+                setEdgeMode(false)
             }
-
-            HStack(alignment: .center, spacing: 14) {
-                Text("\(Int(controlVM.channelA.strength))%")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .foregroundColor(.accentColor)
-                    .frame(width: 88, alignment: .leading)
-
-                VStack(spacing: 8) {
-                    Slider(value: Binding(
-                        get: { controlVM.channelA.strength },
-                        set: { controlVM.setChannelStrength(.a, $0) }
-                    ), in: 0...100)
-
-                    HStack {
-                        Label(controlVM.channelA.waveform.name, systemImage: controlVM.channelA.waveform.icon)
-                        Spacer()
-                        Text("\(Int(controlVM.channelA.frequency)) Hz")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
+            modeButton(title: "Edge", icon: "heart.circle.fill", isActive: settingsVM.edgeModeConfig.isEnabled) {
+                setEdgeMode(true)
             }
-
             Button {
-                showSyncedChannelDetail = true
+                showEdgeSettings = true
             } label: {
-                Label("Channel Settings", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity)
+                Image(systemName: "ellipsis.circle")
+                    .frame(width: 42, height: 42)
             }
-            .buttonStyle(.bordered)
-            .font(.subheadline)
+            .buttonStyle(.plain)
+            .background(.ultraThinMaterial)
+            .clipShape(Capsule())
         }
-        .padding(12)
-        .glassCard()
     }
 
-    // MARK: - Waveform Quick Selector
-
-    private var settingsRows: some View {
-        VStack(spacing: 0) {
-            settingButton(
-                title: "Waveforms",
-                value: controlVM.channelA.waveform.name,
-                icon: "waveform",
-                action: { showWaveformSettings = true }
-            )
-            Divider().padding(.leading, 36)
-            settingButton(
-                title: "Intensity",
-                value: "\(controlVM.intensityBoost > 0 ? "+" : "")\(Int(controlVM.intensityBoost))%",
-                icon: "slider.horizontal.3",
-                action: { showIntensitySettings = true }
-            )
-            Divider().padding(.leading, 36)
-            HStack {
-                Image(systemName: controlVM.isSynced ? "link" : "xmark.circle")
-                    .foregroundColor(controlVM.isSynced ? .green : .secondary)
-                    .frame(width: 24)
-                Text("Sync A+B")
-                    .font(.subheadline)
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { controlVM.isSynced },
-                    set: { _ in controlVM.toggleSync() }
-                ))
-                .tint(.green)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-        }
-        .glassCard()
-    }
-
-    private func settingButton(title: String, value: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func modeButton(title: String, icon: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                Image(systemName: icon)
-                    .frame(width: 24)
-                Text(title)
-                    .font(.subheadline)
-                Spacer()
-                Text(value)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .foregroundColor(isActive ? .white : .primary)
+                .background(isActive ? Color.accentColor : Color.secondary.opacity(0.12))
+                .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
 
-    // MARK: - Waveform Preview
-
-    private var waveformPreview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Waveform Preview")
-                .font(.headline)
-
-            WaveformPreviewView(points: controlVM.waveformPoints)
-                .frame(height: 72)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
+    private var outputConsole: some View {
+        VStack(spacing: 12) {
             HStack {
-                Text(controlVM.channelA.waveform.name)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                Text(controlVM.isSynced ? "Channels A+B" : "Channels")
+                    .font(.headline)
                 Spacer()
-                Text("\(Int(controlVM.channelA.frequency)) Hz")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                Toggle("Sync", isOn: Binding(
+                    get: { controlVM.isSynced },
+                    set: { _ in controlVM.toggleSync() }
+                ))
+                .font(.caption)
+                .toggleStyle(.switch)
+                .tint(.green)
+            }
+
+            if controlVM.isSynced {
+                OutputMeterRow(
+                    title: "A+B",
+                    color: .accentColor,
+                    channel: controlVM.channelA,
+                    strength: Binding(
+                        get: { controlVM.channelA.strength },
+                        set: { controlVM.setChannelStrength(.a, $0) }
+                    ),
+                    enabled: Binding(
+                        get: { controlVM.channelA.isEnabled || controlVM.channelB.isEnabled },
+                        set: { enabled in
+                            controlVM.updateChannelA { $0.isEnabled = enabled }
+                            controlVM.updateChannelB { $0.isEnabled = enabled }
+                        }
+                    ),
+                    onDetails: { showSyncedChannelDetail = true }
+                )
+            } else {
+                OutputMeterRow(
+                    title: "A",
+                    color: .blue,
+                    channel: controlVM.channelA,
+                    strength: Binding(
+                        get: { controlVM.channelA.strength },
+                        set: { controlVM.setChannelStrength(.a, $0) }
+                    ),
+                    enabled: Binding(
+                        get: { controlVM.channelA.isEnabled },
+                        set: { enabled in controlVM.updateChannelA { $0.isEnabled = enabled } }
+                    ),
+                    onDetails: { showChannelDetailA = true }
+                )
+                OutputMeterRow(
+                    title: "B",
+                    color: .purple,
+                    channel: controlVM.channelB,
+                    strength: Binding(
+                        get: { controlVM.channelB.strength },
+                        set: { controlVM.setChannelStrength(.b, $0) }
+                    ),
+                    enabled: Binding(
+                        get: { controlVM.channelB.isEnabled },
+                        set: { enabled in controlVM.updateChannelB { $0.isEnabled = enabled } }
+                    ),
+                    onDetails: { showChannelDetailB = true }
+                )
             }
         }
-        .padding()
+        .padding(14)
         .glassCard()
     }
 
-    // MARK: - Quick Presets Row
+    private var controlTiles: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            dashboardTile("Signal", value: controlVM.channelA.waveform.name, icon: "waveform") {
+                showWaveformSettings = true
+            }
+            dashboardTile("Boost", value: boostText, icon: "bolt.circle") {
+                showIntensitySettings = true
+            }
+            dashboardTile("Biometrics", value: settingsVM.edgeModeConfig.isEnabled ? controlVM.edgeModeState.label : controlVM.heartRateSafetyState.label, icon: "heart.fill") {
+                showEdgeSettings = true
+            }
+            dashboardTile("Device", value: settingsVM.connectionConfig.mode.rawValue, icon: settingsVM.connectionConfig.mode.icon) {
+                showConnectionSetup = true
+            }
+        }
+    }
 
-    private var quickPresetsRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func dashboardTile(_ title: String, value: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .frame(width: 28, height: 28)
+                    .foregroundColor(.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(value)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var waveformStage: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Quick Presets")
+                Label(controlVM.channelA.waveform.name, systemImage: controlVM.channelA.waveform.icon)
+                    .font(.headline)
+                Spacer()
+                Text("\(Int(controlVM.channelA.frequency)) Hz")
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+
+            WaveformPreviewView(points: controlVM.waveformPoints)
+                .frame(height: 76)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(14)
+        .glassCard()
+    }
+
+    private var presetRail: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Presets")
                     .font(.headline)
                 Spacer()
                 Button("All") {
@@ -364,32 +300,37 @@ struct ControlDashboardView: View {
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Preset.allBuiltins) { preset in
+                HStack(spacing: 10) {
+                    ForEach(Preset.allBuiltins.prefix(10)) { preset in
                         Button {
                             controlVM.applyPreset(preset)
                         } label: {
-                            VStack(spacing: 6) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 Image(systemName: preset.icon)
-                                    .font(.title2)
+                                    .font(.title3)
                                     .foregroundColor(Color(hex: preset.color))
                                 Text(preset.name)
-                                    .font(.caption)
+                                    .font(.caption.weight(.semibold))
                                     .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                Text("\(Int(preset.channelA.strength))%")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundColor(.secondary)
                             }
-                            .frame(width: 72, height: 56)
-                            .background(Color(hex: preset.color).opacity(0.15))
+                            .frame(width: 92, height: 82, alignment: .leading)
+                            .padding(10)
+                            .background(Color(hex: preset.color).opacity(0.12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
-        .padding()
+        .padding(14)
         .glassCard()
     }
-
-    // MARK: - Session Control Button
 
     private var sessionControlButton: some View {
         Button {
@@ -399,27 +340,187 @@ struct ControlDashboardView: View {
                 controlVM.startSession()
             }
         } label: {
-            HStack {
-                Image(systemName: controlVM.isSessionActive ? "stop.fill" : "play.fill")
-                    .font(.title3)
-                Text(controlVM.isSessionActive ? "Stop Session" : "Start Session")
-                    .font(.headline)
-            }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(
-                LinearGradient(
-                    colors: controlVM.isSessionActive
-                        ? [.orange.opacity(0.8), .orange]
-                        : [.green.opacity(0.8), .green],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .foregroundColor(.white)
-            .clipShape(Capsule())
+            Label(controlVM.isSessionActive ? "Stop Session" : "Start Session", systemImage: controlVM.isSessionActive ? "stop.fill" : "play.fill")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(controlVM.isSessionActive ? Color.orange : Color.green)
+                .foregroundColor(.white)
+                .clipShape(Capsule())
         }
-        .glassCard()
+        .padding(.top, 2)
+    }
+
+    private var heartRateText: String {
+        guard let bpm = controlVM.currentHeartRateBPM else { return "-- BPM" }
+        return "\(Int(bpm)) BPM"
+    }
+
+    private var heartRateProgress: Double {
+        guard let bpm = controlVM.currentHeartRateBPM else { return 0.12 }
+        let minBPM = 60.0
+        let maxBPM = max(settingsVM.edgeModeConfig.peakBPM, 150)
+        return max(0.05, min(1, (bpm - minBPM) / (maxBPM - minBPM)))
+    }
+
+    private var edgeColor: Color {
+        switch controlVM.edgeModeState {
+        case .inactive, .armed:
+            return settingsVM.edgeModeConfig.isEnabled ? .accentColor : .secondary
+        case .building:
+            return .green
+        case .holding:
+            return .orange
+        case .easing:
+            return .red
+        }
+    }
+
+    private var boostText: String {
+        "\(controlVM.intensityBoost > 0 ? "+" : "")\(Int(controlVM.intensityBoost))%"
+    }
+
+    private func setEdgeMode(_ enabled: Bool) {
+        settingsVM.edgeModeConfig.isEnabled = enabled
+        settingsVM.saveAll()
+        if enabled {
+            Task { await controlVM.requestHeartRateAuthorization() }
+        }
+    }
+}
+
+private struct OutputMeterRow: View {
+    let title: String
+    let color: Color
+    let channel: ChannelState
+    @Binding var strength: Double
+    @Binding var enabled: Bool
+    let onDetails: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(color)
+                Text("\(Int(strength))%")
+                    .font(.title3.monospacedDigit().weight(.bold))
+                Spacer()
+                Toggle("", isOn: $enabled)
+                    .labelsHidden()
+                    .tint(.green)
+            }
+
+            Slider(value: $strength, in: 0...100)
+                .tint(color)
+
+            HStack {
+                Label(channel.waveform.name, systemImage: channel.waveform.icon)
+                Spacer()
+                Text("\(Int(channel.frequency)) Hz")
+                Button(action: onDetails) {
+                    Image(systemName: "slider.horizontal.3")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+struct EdgeModeSettingsSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var controlVM: ControlVM
+    @EnvironmentObject var settingsVM: SettingsVM
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Mode") {
+                    Toggle("Edge Mode", isOn: Binding(
+                        get: { settingsVM.edgeModeConfig.isEnabled },
+                        set: { enabled in
+                            settingsVM.edgeModeConfig.isEnabled = enabled
+                            settingsVM.saveAll()
+                            if enabled {
+                                Task { await controlVM.requestHeartRateAuthorization() }
+                            }
+                        }
+                    ))
+
+                    Label(controlVM.edgeModeState.label, systemImage: controlVM.edgeModeState.icon)
+                        .foregroundColor(.secondary)
+
+                    if let error = controlVM.heartRateAuthorizationError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Section("Heart Rate") {
+                    LabeledContent("Recovery") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.recoveryBPM)) BPM",
+                                value: edgeDouble(\.recoveryBPM),
+                                in: 60...140,
+                                step: 1)
+                    }
+                    LabeledContent("Target") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.targetBPM)) BPM",
+                                value: edgeDouble(\.targetBPM),
+                                in: 80...180,
+                                step: 1)
+                    }
+                    LabeledContent("Peak") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.peakBPM)) BPM",
+                                value: edgeDouble(\.peakBPM),
+                                in: 90...205,
+                                step: 1)
+                    }
+                }
+
+                Section("Output Bounds") {
+                    LabeledContent("Floor") {
+                        Text("\(Int(settingsVM.edgeModeConfig.minStrength))%")
+                            .monospacedDigit()
+                    }
+                    Slider(value: edgeDouble(\.minStrength), in: 0...settingsVM.edgeModeConfig.maxStrength, step: 1)
+
+                    LabeledContent("Ceiling") {
+                        Text("\(Int(settingsVM.edgeModeConfig.maxStrength))%")
+                            .monospacedDigit()
+                    }
+                    Slider(value: edgeDouble(\.maxStrength), in: settingsVM.edgeModeConfig.minStrength...80, step: 1)
+
+                    LabeledContent("Step") {
+                        Text("\(settingsVM.edgeModeConfig.rampStep, specifier: "%.1f")%")
+                            .monospacedDigit()
+                    }
+                    Slider(value: edgeDouble(\.rampStep), in: 0.5...6, step: 0.5)
+                }
+            }
+            .navigationTitle("Edge Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func edgeDouble(_ keyPath: WritableKeyPath<EdgeModeConfig, Double>) -> Binding<Double> {
+        Binding(
+            get: { settingsVM.edgeModeConfig[keyPath: keyPath] },
+            set: { value in
+                settingsVM.edgeModeConfig[keyPath: keyPath] = value
+                settingsVM.saveAll()
+            }
+        )
     }
 }
 

@@ -15,6 +15,10 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
     case alternating
     case sweep
     case tremolo
+    case breath
+    case glide
+    case flutter
+    case crescendo
     case random
     case custom(name: String, points: [Double])
 
@@ -37,6 +41,10 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .alternating: return "Alternating"
         case .sweep: return "Sweep"
         case .tremolo: return "Tremolo"
+        case .breath: return "Breath"
+        case .glide: return "Glide"
+        case .flutter: return "Flutter"
+        case .crescendo: return "Crescendo"
         case .random: return "Random"
         case .custom(let name, _): return name
         }
@@ -56,6 +64,10 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .alternating: return "arrow.left.arrow.right"
         case .sweep: return "waveform.path.ecg"
         case .tremolo: return "waveform"
+        case .breath: return "wind"
+        case .glide: return "water.waves"
+        case .flutter: return "sparkles"
+        case .crescendo: return "chart.line.uptrend.xyaxis"
         case .random: return "sparkle"
         case .custom: return "pencil"
         }
@@ -97,6 +109,10 @@ extension WaveformType {
         .alternating,
         .sweep,
         .tremolo,
+        .breath,
+        .glide,
+        .flutter,
+        .crescendo,
         .random
     ]
 }
@@ -138,6 +154,14 @@ actor WaveformEngine {
             points = generateSweep(samples: samples, frequency: frequency)
         case .tremolo:
             points = generateTremolo(samples: samples, frequency: frequency)
+        case .breath:
+            points = generateBreath(samples: samples)
+        case .glide:
+            points = generateGlide(samples: samples, frequency: frequency)
+        case .flutter:
+            points = generateFlutter(samples: samples, frequency: frequency)
+        case .crescendo:
+            points = generateCrescendo(samples: samples, frequency: frequency)
         case .random:
             points = (0..<samples).map { _ in Double.random(in: -1...1) }
         case .custom(_, let pts):
@@ -231,6 +255,41 @@ actor WaveformEngine {
             let t = Double(i) / Double(max(1, samples - 1))
             let amplitude = 0.35 + 0.65 * abs(sin(2 * .pi * t * 3))
             return amplitude * sin(2 * .pi * t * carrier)
+        }
+    }
+
+    private func generateBreath(samples: Int) -> [Double] {
+        (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let envelope = pow(sin(.pi * t), 1.8)
+            return envelope * sin(2 * .pi * t * 2)
+        }
+    }
+
+    private func generateGlide(samples: Int, frequency: Double) -> [Double] {
+        let cycles = max(1, frequency / 8)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let drift = 0.18 * sin(2 * .pi * t)
+            return sin(2 * .pi * (cycles * t + drift))
+        }
+    }
+
+    private func generateFlutter(samples: Int, frequency: Double) -> [Double] {
+        let carrier = max(3, frequency / 2)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let gate = sin(2 * .pi * t * 9) > 0.15 ? 1.0 : 0.2
+            return gate * sin(2 * .pi * t * carrier)
+        }
+    }
+
+    private func generateCrescendo(samples: Int, frequency: Double) -> [Double] {
+        let cycles = max(1, frequency / 10)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let envelope = min(1, 0.15 + t * 0.95)
+            return envelope * sin(2 * .pi * t * cycles)
         }
     }
 
