@@ -9,21 +9,26 @@ struct ControlDashboardView: View {
     @State private var showChannelDetailA = false
     @State private var showChannelDetailB = false
     @State private var showConnectionSetup = false
+    @State private var showSyncedChannelDetail = false
+    @State private var showWaveformSettings = false
+    @State private var showIntensitySettings = false
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
                 connectionStatusBar
                 sessionHeader
-                HStack(spacing: 10) {
-                    channelCard(channel: controlVM.channelA, isA: true)
-                    channelCard(channel: controlVM.channelB, isA: false)
+                if controlVM.isSynced {
+                    syncedChannelCard
+                } else {
+                    HStack(spacing: 10) {
+                        channelCard(channel: controlVM.channelA, isA: true)
+                        channelCard(channel: controlVM.channelB, isA: false)
+                    }
                 }
-                waveformQuickSelector
-                syncToggle
+                settingsRows
                 waveformPreview
                 quickPresetsRow
-                intensityBoostSlider
                 sessionControlButton
             }
             .padding(.horizontal, 12)
@@ -42,6 +47,15 @@ struct ControlDashboardView: View {
         }
         .sheet(isPresented: $showConnectionSetup) {
             ConnectionSetupView()
+        }
+        .sheet(isPresented: $showSyncedChannelDetail) {
+            SyncedChannelDetailView()
+        }
+        .sheet(isPresented: $showWaveformSettings) {
+            WaveformSettingsSheet()
+        }
+        .sheet(isPresented: $showIntensitySettings) {
+            IntensitySettingsSheet()
         }
         .alert("Safety Warning", isPresented: $controlVM.showSafetyWarning) {
             Button("Continue") {
@@ -195,62 +209,119 @@ struct ControlDashboardView: View {
         .glassCard()
     }
 
-    // MARK: - Waveform Quick Selector
-
-    private var waveformQuickSelector: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Waveforms")
-                .font(.headline)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(WaveformType.allBuiltIn) { wf in
-                        Button {
-                            controlVM.updateChannelA { $0.waveform = wf }
-                            if !controlVM.isSynced {
-                                controlVM.updateChannelB { $0.waveform = wf }
-                            }
-                        } label: {
-                            VStack(spacing: 4) {
-                                Image(systemName: wf.icon)
-                                Text(wf.name)
-                                    .font(.caption2)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.75)
-                            }
-                            .frame(width: 58, height: 48)
-                            .background(
-                                controlVM.channelA.waveform.id == wf.id
-                                    ? Color.accentColor.opacity(0.2)
-                                    : Color.secondary.opacity(0.1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        }
+    private var syncedChannelCard: some View {
+        VStack(spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Channels A+B")
+                        .font(.headline)
+                    Text("Synced output")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { controlVM.channelA.isEnabled || controlVM.channelB.isEnabled },
+                    set: { enabled in
+                        controlVM.updateChannelA { $0.isEnabled = enabled }
+                        controlVM.updateChannelB { $0.isEnabled = enabled }
                     }
+                ))
+                .tint(.green)
+            }
+
+            HStack(alignment: .center, spacing: 14) {
+                Text("\(Int(controlVM.channelA.strength))%")
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 88, alignment: .leading)
+
+                VStack(spacing: 8) {
+                    Slider(value: Binding(
+                        get: { controlVM.channelA.strength },
+                        set: { controlVM.setChannelStrength(.a, $0) }
+                    ), in: 0...100)
+
+                    HStack {
+                        Label(controlVM.channelA.waveform.name, systemImage: controlVM.channelA.waveform.icon)
+                        Spacer()
+                        Text("\(Int(controlVM.channelA.frequency)) Hz")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
             }
+
+            Button {
+                showSyncedChannelDetail = true
+            } label: {
+                Label("Channel Settings", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .font(.subheadline)
         }
         .padding(12)
         .glassCard()
     }
 
-    // MARK: - Sync Toggle
+    // MARK: - Waveform Quick Selector
 
-    private var syncToggle: some View {
-        HStack {
-            Image(systemName: controlVM.isSynced ? "link" : "xmark.circle")
-                .foregroundColor(controlVM.isSynced ? .green : .secondary)
-            Text("Channels synced")
-                .font(.subheadline)
-            Spacer()
-            Toggle("", isOn: Binding(
-                get: { controlVM.isSynced },
-                set: { _ in controlVM.toggleSync() }
-            ))
-            .tint(.green)
+    private var settingsRows: some View {
+        VStack(spacing: 0) {
+            settingButton(
+                title: "Waveforms",
+                value: controlVM.channelA.waveform.name,
+                icon: "waveform",
+                action: { showWaveformSettings = true }
+            )
+            Divider().padding(.leading, 36)
+            settingButton(
+                title: "Intensity",
+                value: "\(controlVM.intensityBoost > 0 ? "+" : "")\(Int(controlVM.intensityBoost))%",
+                icon: "slider.horizontal.3",
+                action: { showIntensitySettings = true }
+            )
+            Divider().padding(.leading, 36)
+            HStack {
+                Image(systemName: controlVM.isSynced ? "link" : "xmark.circle")
+                    .foregroundColor(controlVM.isSynced ? .green : .secondary)
+                    .frame(width: 24)
+                Text("Sync A+B")
+                    .font(.subheadline)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { controlVM.isSynced },
+                    set: { _ in controlVM.toggleSync() }
+                ))
+                .tint(.green)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
-        .padding(12)
         .glassCard()
+    }
+
+    private func settingButton(title: String, value: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                    .frame(width: 24)
+                Text(title)
+                    .font(.subheadline)
+                Spacer()
+                Text(value)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Waveform Preview
@@ -318,40 +389,6 @@ struct ControlDashboardView: View {
         .glassCard()
     }
 
-    // MARK: - Intensity Boost Slider
-
-    private var intensityBoostSlider: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Intensity Boost")
-                    .font(.headline)
-                Spacer()
-                Text("\(controlVM.intensityBoost > 0 ? "+" : "")\(Int(controlVM.intensityBoost))%")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(controlVM.intensityBoost > 0 ? .red : .secondary)
-            }
-
-            Slider(value: $controlVM.intensityBoost, in: -20...20, step: 1)
-                .tint(.orange)
-                .onChange(of: controlVM.intensityBoost) { _, newValue in
-                    controlVM.applyIntensityBoost(newValue)
-                }
-
-            HStack {
-                Text("−20%")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("+20%")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding()
-        .glassCard()
-    }
-
     // MARK: - Session Control Button
 
     private var sessionControlButton: some View {
@@ -383,6 +420,252 @@ struct ControlDashboardView: View {
             .clipShape(Capsule())
         }
         .glassCard()
+    }
+}
+
+// MARK: - Waveform Settings
+
+private enum WaveformTarget: String, CaseIterable, Identifiable {
+    case both = "A+B"
+    case channelA = "A"
+    case channelB = "B"
+
+    var id: String { rawValue }
+}
+
+struct WaveformSettingsSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var controlVM: ControlVM
+    @State private var target: WaveformTarget = .both
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !controlVM.isSynced {
+                        Picker("Channel", selection: $target) {
+                            ForEach(WaveformTarget.allCases) { target in
+                                Text(target.rawValue).tag(target)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
+                        ForEach(WaveformType.allBuiltIn) { waveform in
+                            Button {
+                                apply(waveform)
+                            } label: {
+                                VStack(spacing: 8) {
+                                    Image(systemName: waveform.icon)
+                                        .font(.title2)
+                                    Text(waveform.name)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                    WaveformMiniPreview(waveform: waveform, frequency: controlVM.channelA.frequency)
+                                        .frame(height: 22)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(isSelected(waveform) ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Waveforms")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func apply(_ waveform: WaveformType) {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both:
+            controlVM.updateChannelA { $0.waveform = waveform }
+            controlVM.updateChannelB { $0.waveform = waveform }
+        case .channelA:
+            controlVM.updateChannelA { $0.waveform = waveform }
+        case .channelB:
+            controlVM.updateChannelB { $0.waveform = waveform }
+        }
+    }
+
+    private func isSelected(_ waveform: WaveformType) -> Bool {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both:
+            return controlVM.channelA.waveform == waveform && controlVM.channelB.waveform == waveform
+        case .channelA:
+            return controlVM.channelA.waveform == waveform
+        case .channelB:
+            return controlVM.channelB.waveform == waveform
+        }
+    }
+}
+
+// MARK: - Intensity Settings
+
+struct IntensitySettingsSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var controlVM: ControlVM
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Boost") {
+                    HStack {
+                        Text("Output")
+                        Spacer()
+                        Text("\(controlVM.intensityBoost > 0 ? "+" : "")\(Int(controlVM.intensityBoost))%")
+                            .monospacedDigit()
+                            .foregroundColor(controlVM.intensityBoost > 0 ? .red : .secondary)
+                    }
+
+                    Slider(value: $controlVM.intensityBoost, in: -20...20, step: 1)
+                        .tint(.orange)
+                        .onChange(of: controlVM.intensityBoost) { _, newValue in
+                            controlVM.applyIntensityBoost(newValue)
+                        }
+
+                    Button("Reset Boost") {
+                        controlVM.applyIntensityBoost(0)
+                    }
+                }
+            }
+            .navigationTitle("Intensity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+// MARK: - Synced Channel Detail
+
+struct SyncedChannelDetailView: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var controlVM: ControlVM
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Channels A+B") {
+                    Toggle("Enabled", isOn: Binding(
+                        get: { controlVM.channelA.isEnabled || controlVM.channelB.isEnabled },
+                        set: { enabled in
+                            updateBoth { $0.isEnabled = enabled }
+                        }
+                    ))
+
+                    LabeledContent("Strength") {
+                        Text("\(Int(controlVM.channelA.strength))%")
+                            .monospacedDigit()
+                    }
+                    Slider(value: syncedDouble(\.strength), in: 0...100)
+                }
+
+                Section("Signal") {
+                    Picker("Waveform", selection: syncedWaveform) {
+                        ForEach(WaveformType.allBuiltIn) { waveform in
+                            Label(waveform.name, systemImage: waveform.icon).tag(waveform)
+                        }
+                    }
+
+                    LabeledContent("Frequency") {
+                        Text("\(Int(controlVM.channelA.frequency)) Hz")
+                            .monospacedDigit()
+                    }
+                    Slider(value: syncedDouble(\.frequency), in: 1...50)
+
+                    LabeledContent("Pulse Width") {
+                        Text("\(controlVM.channelA.pulseWidth) us")
+                            .monospacedDigit()
+                    }
+                    Slider(value: syncedPulseWidth, in: 50...1000, step: 10)
+
+                    LabeledContent("Phase") {
+                        Text("\(Int(controlVM.channelA.phaseOffset)) deg")
+                            .monospacedDigit()
+                    }
+                    Slider(value: syncedDouble(\.phaseOffset), in: 0...360)
+                }
+
+                Section("Timing") {
+                    Picker("Duration", selection: syncedDuration) {
+                        Text("Continuous").tag(0)
+                        Text("10s").tag(10_000)
+                        Text("30s").tag(30_000)
+                        Text("1 min").tag(60_000)
+                        Text("2 min").tag(120_000)
+                        Text("5 min").tag(300_000)
+                        Text("10 min").tag(600_000)
+                    }
+                    Toggle("Invert Output", isOn: syncedBool(\.isInverted))
+                }
+            }
+            .navigationTitle("Channels A+B")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var syncedWaveform: Binding<WaveformType> {
+        Binding(
+            get: { controlVM.channelA.waveform },
+            set: { waveform in updateBoth { $0.waveform = waveform } }
+        )
+    }
+
+    private var syncedPulseWidth: Binding<Double> {
+        Binding(
+            get: { Double(controlVM.channelA.pulseWidth) },
+            set: { value in updateBoth { $0.pulseWidth = Int(value) } }
+        )
+    }
+
+    private var syncedDuration: Binding<Int> {
+        Binding(
+            get: { controlVM.channelA.durationMs },
+            set: { value in updateBoth { $0.durationMs = value } }
+        )
+    }
+
+    private func syncedDouble(_ keyPath: WritableKeyPath<ChannelState, Double>) -> Binding<Double> {
+        Binding(
+            get: { controlVM.channelA[keyPath: keyPath] },
+            set: { value in updateBoth { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private func syncedBool(_ keyPath: WritableKeyPath<ChannelState, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { controlVM.channelA[keyPath: keyPath] },
+            set: { value in updateBoth { $0[keyPath: keyPath] = value } }
+        )
+    }
+
+    private func updateBoth(_ block: @escaping (inout ChannelState) -> Void) {
+        controlVM.updateChannelA(block)
+        controlVM.updateChannelB(block)
     }
 }
 

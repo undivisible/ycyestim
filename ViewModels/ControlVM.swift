@@ -41,6 +41,7 @@ final class ControlVM: ObservableObject {
     private var sessionTimer: Timer?
     private var rampTimer: Timer?
     private var waveformPreviewTask: Task<Void, Never>?
+    private var appliedIntensityBoost: Double = 0
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
 
@@ -79,6 +80,7 @@ final class ControlVM: ObservableObject {
         sessionStartTime = .now
         isPaused = false
         intensityBoost = 0
+        appliedIntensityBoost = 0
         currentProgramStep = 0
 
         Task {
@@ -129,6 +131,7 @@ final class ControlVM: ObservableObject {
             activeProgram = nil
             currentProgramStep = 0
             intensityBoost = 0
+            appliedIntensityBoost = 0
             isPaused = false
         }
     }
@@ -161,6 +164,7 @@ final class ControlVM: ObservableObject {
         sessionElapsedMs = 0
         isPaused = false
         intensityBoost = 0
+        appliedIntensityBoost = 0
         triggerHaptic(.medium)
     }
 
@@ -236,13 +240,15 @@ final class ControlVM: ObservableObject {
     // MARK: - Intensity Boost
 
     func applyIntensityBoost(_ boost: Double) {
+        let delta = boost - appliedIntensityBoost
         intensityBoost = boost
+        appliedIntensityBoost = boost
         updateChannelA { ch in
-            ch.strength = max(0, min(100, ch.strength + boost))
+            ch.strength = max(0, min(100, ch.strength + delta))
         }
         if !isSynced {
             updateChannelB { ch in
-                ch.strength = max(0, min(100, ch.strength + boost))
+                ch.strength = max(0, min(100, ch.strength + delta))
             }
         }
     }

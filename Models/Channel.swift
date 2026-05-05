@@ -47,6 +47,7 @@ struct ChannelState: Identifiable, Equatable {
         self.waveform = other.waveform
         self.frequency = other.frequency
         self.pulseWidth = other.pulseWidth
+        self.phaseOffset = other.phaseOffset
         self.isInverted = other.isInverted
     }
 }
