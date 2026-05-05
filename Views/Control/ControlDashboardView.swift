@@ -582,24 +582,8 @@ struct WaveformSettingsSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Label(previewWaveform.name, systemImage: previewWaveform.icon)
-                                .font(.headline)
-                            Spacer()
-                            Text("\(Int(previewFrequency)) Hz")
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                        }
-
-                        WaveformMiniPreview(waveform: previewWaveform, frequency: previewFrequency)
-                            .frame(height: 82)
-                            .padding(.vertical, 6)
-                    }
-                    .padding(14)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                VStack(alignment: .leading, spacing: 14) {
+                    waveformPreviewPanel
 
                     if !controlVM.isSynced {
                         Picker("Channel", selection: $target) {
@@ -610,34 +594,12 @@ struct WaveformSettingsSheet: View {
                         .pickerStyle(.segmented)
                     }
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
-                        ForEach(WaveformType.allBuiltIn) { waveform in
-                            Button {
-                                apply(waveform)
-                                previewWaveform = waveform
-                            } label: {
-                                VStack(spacing: 8) {
-                                    Image(systemName: waveform.icon)
-                                        .font(.title2)
-                                    Text(waveform.name)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.75)
-                                    WaveformMiniPreview(waveform: waveform, frequency: controlVM.channelA.frequency)
-                                        .frame(height: 22)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(isSelected(waveform) ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1))
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                    waveformPickerGrid
+                    signalControls
                 }
                 .padding()
             }
-            .navigationTitle("Waveforms")
+            .navigationTitle("Wave Settings")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 previewWaveform = selectedWaveform
@@ -654,6 +616,145 @@ struct WaveformSettingsSheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    private var waveformPreviewPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(previewWaveform.name, systemImage: previewWaveform.icon)
+                    .font(.headline)
+                Spacer()
+                Text(target.rawValue)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+
+            WaveformMiniPreview(waveform: previewWaveform, frequency: previewFrequency)
+                .frame(height: 108)
+                .padding(.vertical, 4)
+
+            HStack(spacing: 8) {
+                signalChip("\(Int(previewFrequency)) Hz", icon: "waveform")
+                signalChip("\(selectedChannel.pulseWidth) us", icon: "ruler")
+                signalChip("\(Int(selectedChannel.phaseOffset)) deg", icon: "circle")
+            }
+        }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var waveformPickerGrid: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Waveform")
+                .font(.headline)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
+                ForEach(WaveformType.allBuiltIn) { waveform in
+                    Button {
+                        apply(waveform)
+                        previewWaveform = waveform
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: waveform.icon)
+                                    .foregroundColor(isSelected(waveform) ? .accentColor : .secondary)
+                                Text(waveform.name)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                Spacer(minLength: 0)
+                                if isSelected(waveform) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+
+                            WaveformMiniPreview(waveform: waveform, frequency: previewFrequency)
+                                .frame(height: 48)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+                        .background(isSelected(waveform) ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var signalControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Signal")
+                .font(.headline)
+
+            signalSlider(
+                title: "Frequency",
+                value: signalDouble(\.frequency),
+                range: 1...50,
+                step: 1,
+                valueText: "\(Int(selectedChannel.frequency)) Hz"
+            )
+
+            signalSlider(
+                title: "Pulse Width",
+                value: pulseWidthBinding,
+                range: 50...1000,
+                step: 10,
+                valueText: "\(selectedChannel.pulseWidth) us"
+            )
+
+            signalSlider(
+                title: "Phase",
+                value: signalDouble(\.phaseOffset),
+                range: 0...360,
+                step: 5,
+                valueText: "\(Int(selectedChannel.phaseOffset)) deg"
+            )
+
+            Picker("Duration", selection: durationBinding) {
+                Text("Continuous").tag(0)
+                Text("10s").tag(10_000)
+                Text("30s").tag(30_000)
+                Text("1 min").tag(60_000)
+                Text("2 min").tag(120_000)
+                Text("5 min").tag(300_000)
+            }
+            .pickerStyle(.menu)
+
+            Toggle("Invert Output", isOn: signalBool(\.isInverted))
+        }
+        .padding(14)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func signalChip(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.12))
+            .clipShape(Capsule())
+    }
+
+    private func signalSlider(title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, valueText: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(valueText)
+                    .foregroundColor(.secondary)
+                    .monospacedDigit()
+            }
+            .font(.subheadline)
+
+            Slider(value: value, in: range, step: step)
+        }
+    }
+
     private func apply(_ waveform: WaveformType) {
         let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
         switch resolvedTarget {
@@ -664,6 +765,19 @@ struct WaveformSettingsSheet: View {
             controlVM.updateChannelA { $0.waveform = waveform }
         case .channelB:
             controlVM.updateChannelB { $0.waveform = waveform }
+        }
+    }
+
+    private func updateTarget(_ block: @escaping (inout ChannelState) -> Void) {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both:
+            controlVM.updateChannelA(block)
+            controlVM.updateChannelB(block)
+        case .channelA:
+            controlVM.updateChannelA(block)
+        case .channelB:
+            controlVM.updateChannelB(block)
         }
     }
 
@@ -689,6 +803,16 @@ struct WaveformSettingsSheet: View {
         }
     }
 
+    private var selectedChannel: ChannelState {
+        let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
+        switch resolvedTarget {
+        case .both, .channelA:
+            return controlVM.channelA
+        case .channelB:
+            return controlVM.channelB
+        }
+    }
+
     private var previewFrequency: Double {
         let resolvedTarget: WaveformTarget = controlVM.isSynced ? .both : target
         switch resolvedTarget {
@@ -697,6 +821,42 @@ struct WaveformSettingsSheet: View {
         case .channelB:
             return controlVM.channelB.frequency
         }
+    }
+
+    private func signalDouble(_ keyPath: WritableKeyPath<ChannelState, Double>) -> Binding<Double> {
+        Binding(
+            get: { selectedChannel[keyPath: keyPath] },
+            set: { value in
+                updateTarget { $0[keyPath: keyPath] = value }
+            }
+        )
+    }
+
+    private func signalBool(_ keyPath: WritableKeyPath<ChannelState, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { selectedChannel[keyPath: keyPath] },
+            set: { value in
+                updateTarget { $0[keyPath: keyPath] = value }
+            }
+        )
+    }
+
+    private var pulseWidthBinding: Binding<Double> {
+        Binding(
+            get: { Double(selectedChannel.pulseWidth) },
+            set: { value in
+                updateTarget { $0.pulseWidth = Int(value) }
+            }
+        )
+    }
+
+    private var durationBinding: Binding<Int> {
+        Binding(
+            get: { selectedChannel.durationMs },
+            set: { value in
+                updateTarget { $0.durationMs = value }
+            }
+        )
     }
 }
 
