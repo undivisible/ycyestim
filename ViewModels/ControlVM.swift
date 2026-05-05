@@ -40,6 +40,7 @@ final class ControlVM: ObservableObject {
 
     private var sessionTimer: Timer?
     private var rampTimer: Timer?
+    private var waveformPreviewTask: Task<Void, Never>?
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
 
@@ -249,10 +250,20 @@ final class ControlVM: ObservableObject {
     // MARK: - Waveform Preview
 
     func updateWaveformPreview() {
-        Task {
-            waveformPoints = await waveformEngine.generate(
-                channelA.waveform, samples: 500, frequency: channelA.frequency
-            )
+        waveformPreviewTask?.cancel()
+
+        let waveform = channelA.waveform
+        let frequency = channelA.frequency
+        let engine = waveformEngine
+
+        waveformPreviewTask = Task {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+
+            let points = await engine.generate(waveform, samples: 180, frequency: frequency)
+            guard !Task.isCancelled else { return }
+
+            waveformPoints = points
         }
     }
 

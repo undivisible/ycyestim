@@ -67,8 +67,8 @@ struct WaveformMiniPreview: View {
             }
             .stroke(Color.accentColor, lineWidth: 1.5)
         }
-        .task {
-            points = await engine.generate(waveform, samples: 200, frequency: frequency)
+        .task(id: "\(waveform.id)-\(frequency)") {
+            points = await engine.generate(waveform, samples: 80, frequency: frequency)
         }
     }
 }

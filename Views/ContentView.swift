@@ -82,17 +82,29 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 40) {
+            VStack(spacing: 18) {
                 TabView(selection: $currentPage) {
                     ForEach(pages.indices, id: \.self) { i in
-                        VStack(spacing: 24) {
-                            Image(systemName: pages[i].icon).font(.system(size: 60)).foregroundColor(.accentColor)
-                            Text(pages[i].title).font(.title.bold())
-                            Text(pages[i].subtitle).font(.body).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal)
-                        }.tag(i)
+                        VStack(spacing: 16) {
+                            Image(systemName: pages[i].icon)
+                                .font(.system(size: 46))
+                                .foregroundColor(.accentColor)
+                            Text(pages[i].title)
+                                .font(.title2.bold())
+                                .multilineTextAlignment(.center)
+                            Text(pages[i].subtitle)
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 12)
+                        .tag(i)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
+                .frame(maxHeight: 360)
 
                 Button {
                     if currentPage < pages.count - 1 { withAnimation { currentPage += 1 } }
@@ -104,6 +116,7 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 40)
             }
+            .padding(.vertical, 24)
         }
     }
 }

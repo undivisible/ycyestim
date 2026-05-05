@@ -12,40 +12,25 @@ struct ControlDashboardView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // Connection status bar
+            LazyVStack(spacing: 12) {
                 connectionStatusBar
-
-                // Session header with live timer
                 sessionHeader
-
-                // Channel cards
-                HStack(spacing: 16) {
+                HStack(spacing: 10) {
                     channelCard(channel: controlVM.channelA, isA: true)
                     channelCard(channel: controlVM.channelB, isA: false)
                 }
-
-                // Quick waveform selector per channel
                 waveformQuickSelector
-
-                // Sync toggle
                 syncToggle
-
-                // Waveform preview
                 waveformPreview
-
-                // Quick presets
                 quickPresetsRow
-
-                // Intensity boost
                 intensityBoostSlider
-
-                // Start/Stop
                 sessionControlButton
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
         .navigationTitle("Control")
+        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showQuickPresets) {
             QuickPresetSheet()
         }
@@ -142,13 +127,14 @@ struct ControlDashboardView: View {
                     .clipShape(Capsule())
             }
         }
+        .padding(12)
         .glassCard()
     }
 
     // MARK: - Channel Card
 
     private func channelCard(channel: ChannelState, isA: Bool) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             // Header with toggle
             HStack {
                 Text("Channel \(channel.id.label)")
@@ -170,7 +156,7 @@ struct ControlDashboardView: View {
             // Strength with large display
             VStack(spacing: 4) {
                 Text("\(Int(channel.strength))%")
-                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundColor(isA ? .blue : .purple)
 
                 Slider(value: Binding(
@@ -182,15 +168,17 @@ struct ControlDashboardView: View {
 
             // Mini waveform preview
             WaveformMiniPreview(waveform: channel.waveform, frequency: channel.frequency)
-                .frame(height: 32)
+                .frame(height: 24)
 
             // Info row
             HStack {
                 Label("\(Int(channel.frequency)) Hz", systemImage: "waveform")
                     .font(.caption)
+                    .lineLimit(1)
                 Spacer()
                 Label("\(channel.pulseWidth)μs", systemImage: "ruler")
                     .font(.caption)
+                    .lineLimit(1)
             }
             .foregroundColor(.secondary)
 
@@ -200,9 +188,10 @@ struct ControlDashboardView: View {
                 else { showChannelDetailB = true }
             }
             .buttonStyle(.bordered)
+            .font(.caption)
             .tint(.secondary)
         }
-        .padding()
+        .padding(12)
         .glassCard()
     }
 
@@ -213,31 +202,35 @@ struct ControlDashboardView: View {
             Text("Waveforms")
                 .font(.headline)
 
-            HStack(spacing: 8) {
-                ForEach(WaveformType.allBuiltIn) { wf in
-                    Button {
-                        controlVM.updateChannelA { $0.waveform = wf }
-                        if !controlVM.isSynced {
-                            controlVM.updateChannelB { $0.waveform = wf }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(WaveformType.allBuiltIn) { wf in
+                        Button {
+                            controlVM.updateChannelA { $0.waveform = wf }
+                            if !controlVM.isSynced {
+                                controlVM.updateChannelB { $0.waveform = wf }
+                            }
+                        } label: {
+                            VStack(spacing: 4) {
+                                Image(systemName: wf.icon)
+                                Text(wf.name)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                            }
+                            .frame(width: 58, height: 48)
+                            .background(
+                                controlVM.channelA.waveform.id == wf.id
+                                    ? Color.accentColor.opacity(0.2)
+                                    : Color.secondary.opacity(0.1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                         }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: wf.icon)
-                            Text(wf.name)
-                                .font(.caption2)
-                                .lineLimit(1)
-                        }
-                        .frame(width: 64, height: 52)
-                        .background(
-                            controlVM.channelA.waveform.id == wf.id
-                                ? Color.accentColor.opacity(0.2)
-                                : Color.secondary.opacity(0.1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                 }
             }
         }
+        .padding(12)
         .glassCard()
     }
 
@@ -256,6 +249,7 @@ struct ControlDashboardView: View {
             ))
             .tint(.green)
         }
+        .padding(12)
         .glassCard()
     }
 
@@ -267,7 +261,7 @@ struct ControlDashboardView: View {
                 .font(.headline)
 
             WaveformPreviewView(points: controlVM.waveformPoints)
-                .frame(height: 100)
+                .frame(height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
             HStack {
@@ -312,7 +306,7 @@ struct ControlDashboardView: View {
                                     .font(.caption)
                                     .foregroundColor(.primary)
                             }
-                            .frame(width: 80, height: 60)
+                            .frame(width: 72, height: 56)
                             .background(Color(hex: preset.color).opacity(0.15))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
