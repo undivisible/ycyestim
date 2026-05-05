@@ -91,6 +91,13 @@ Open `YCYEStim` folder in Xcode and build for your device.
 
 No dependencies required — pure Swift + SwiftUI + CoreBluetooth.
 
+## Apple Watch
+
+The watch companion is embedded in the iPhone app and can also run independently.
+After installing to iPhone, check the Watch app on iPhone under Available Apps if
+automatic watch app installation is disabled. The watch app starts a workout
+session and streams fresh heart-rate samples back to Edge Mode.
+
 ## License
 
 MIT
