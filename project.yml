@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.ycy
   deploymentTarget:
     iOS: "18.0"
+    watchOS: "11.0"
   generateEmptyDirectories: true
   createIntermediateGroups: true
   xcodeVersion: "16.0"
@@ -35,6 +36,7 @@ targets:
       - path: .
         excludes:
           - "Tests/**"
+          - "WatchApp/**"
           - "*.xcodeproj"
           - "*.xcworkspace"
           - "docs/**"
@@ -53,6 +55,9 @@ targets:
         buildPhase: resources
     dependencies:
       - sdk: HealthKit.framework
+      - sdk: WatchConnectivity.framework
+      - target: YCYEStimWatch
+        embed: true
     settings:
       base:
         PRODUCT_NAME: "YCYEStim"
@@ -78,6 +83,38 @@ targets:
     preBuildScripts: []
     postCompileScripts: []
     postBuildScripts: []
+
+  YCYEStimWatch:
+    type: application
+    platform: watchOS
+    attributes:
+      SystemCapabilities:
+        com.apple.HealthKit:
+          enabled: 1
+    sources:
+      - path: WatchApp
+    dependencies:
+      - sdk: HealthKit.framework
+      - sdk: WatchConnectivity.framework
+    settings:
+      base:
+        PRODUCT_NAME: "YCYEStim Watch"
+        PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.estim.watchkitapp
+        INFOPLIST_FILE: "WatchApp/WatchInfo.plist"
+        CODE_SIGN_ENTITLEMENTS: "WatchApp/YCYEStimWatch.entitlements"
+        DEVELOPMENT_TEAM: LZ3NL5434Q
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        SWIFT_EMIT_LOC_STRINGS: true
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
+          SWIFT_COMPILATION_MODE: wholemodule
 
   YCYEStimTests:
     type: bundle.unit-test

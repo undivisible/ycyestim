@@ -38,6 +38,7 @@ final class ControlVM: ObservableObject {
     private let bluetoothService = BluetoothService()
     private let httpService = HTTPService()
     private let heartRateService = HealthKitHeartRateService()
+    private var watchHeartRateReceiver: WatchHeartRateReceiver?
     private let waveformEngine = WaveformEngine()
     let presetStore = PresetStore()
 
@@ -54,6 +55,13 @@ final class ControlVM: ObservableObject {
     private let lightGen = UIImpactFeedbackGenerator(style: .light)
     private let mediumGen = UIImpactFeedbackGenerator(style: .medium)
     private let heavyGen = UIImpactFeedbackGenerator(style: .heavy)
+
+    init() {
+        watchHeartRateReceiver = WatchHeartRateReceiver { [weak self] reading in
+            self?.handleWatchHeartRate(reading)
+        }
+        watchHeartRateReceiver?.start()
+    }
 
     // MARK: - Computed
 
@@ -506,6 +514,11 @@ final class ControlVM: ObservableObject {
         }
         applyEdgeModeIfNeeded(bpm: bpm)
         applyAdaptiveHeartRateLimits()
+    }
+
+    private func handleWatchHeartRate(_ reading: HeartRateReading) {
+        let policy = HeartRateSafetyPolicy(config: settingsVM?.heartRateSafetyConfig ?? .default)
+        handleHeartRateUpdate(reading, safetyPolicy: policy)
     }
 
     private func applyEdgeModeIfNeeded(bpm: Double) {
