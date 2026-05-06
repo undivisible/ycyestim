@@ -24,7 +24,7 @@
 	<string>Heart rate is streamed to your iPhone for local Edge Mode control.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>A workout session is started so Apple Watch can collect continuous heart-rate samples.</string>
-	<key>WKWatchKitApp</key>
+	<key>WKApplication</key>
 	<true/>
 	<key>WKBackgroundModes</key>
 	<array>

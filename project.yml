@@ -18,7 +18,6 @@ settings:
     ENABLE_BITCODE: false
     DEVELOPMENT_TEAM: LZ3NL5434Q
     CODE_SIGN_STYLE: Automatic
-    CODE_SIGN_IDENTITY: "Apple Development"
     PROVISIONING_PROFILE_SPECIFIER: ""
     ASSETCATALOG_COMPILER_INCLUDE_ALL_APP_ICON_ASSETS: true
     MARKETING_VERSION: "1.0.0"
@@ -49,9 +48,14 @@ targets:
           - ".brisk.toml"
           - "project.yml"
           - "Package.swift"
+          - "Assets.xcassets/**"
+          - "PrivacyInfo.xcprivacy"
           - "Resources/default_presets.json"
           - "YCYEStim.entitlements"
+      - path: Assets.xcassets
       - path: Resources/default_presets.json
+        buildPhase: resources
+      - path: PrivacyInfo.xcprivacy
         buildPhase: resources
     dependencies:
       - sdk: HealthKit.framework
@@ -65,7 +69,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_FILE: "Info.plist"
         CODE_SIGN_ENTITLEMENTS: "YCYEStim.entitlements"
-        CODE_SIGN_IDENTITY: "Apple Development"
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
         SWIFT_EMIT_LOC_STRINGS: true
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited)"
@@ -93,6 +96,7 @@ targets:
           enabled: 1
     sources:
       - path: WatchApp
+      - path: Assets.xcassets
     dependencies:
       - sdk: HealthKit.framework
       - sdk: WatchConnectivity.framework
@@ -102,9 +106,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.undivisible.estim.watchkitapp
         INFOPLIST_FILE: "WatchApp/WatchInfo.plist"
         CODE_SIGN_ENTITLEMENTS: "WatchApp/YCYEStimWatch.entitlements"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "WatchAppIcon"
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: true
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
         DEVELOPMENT_TEAM: LZ3NL5434Q
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_IDENTITY: "Apple Development"
         PROVISIONING_PROFILE_SPECIFIER: ""
         ENABLE_USER_SCRIPT_SANDBOXING: false
         SWIFT_EMIT_LOC_STRINGS: true
@@ -137,6 +144,7 @@ schemes:
     build:
       targets:
         YCYEStim: all
+        YCYEStimWatch: all
         YCYEStimTests: [test]
     run:
       config: Debug
