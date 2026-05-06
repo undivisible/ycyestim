@@ -97,5 +97,23 @@ extension Program {
         pauseBetweenSteps: 2_000
     )
 
-    static let allBuiltins: [Program] = [warmupProgression, intervalTraining]
+    static let tensionScene = Program(
+        name: "Tension Scene",
+        icon: "theatermasks.fill",
+        color: "#5E5CE6",
+        steps: [
+            .init(timeOffset: 0, channelA: .init(strength: 12, waveform: .breath, frequency: 8, pulseWidth: 55, durationMs: 45_000)),
+            .init(timeOffset: 45_000, channelA: .init(strength: 18, waveform: .wave, frequency: 12, pulseWidth: 60, durationMs: 45_000), channelB: .init(strength: 10, waveform: .pulse(count: .single), frequency: 10, pulseWidth: 55, durationMs: 45_000)),
+            .init(timeOffset: 90_000, channelA: .init(strength: 24, waveform: .glide, frequency: 16, pulseWidth: 65, durationMs: 60_000), channelB: .init(strength: 16, waveform: .rampUp, frequency: 14, pulseWidth: 60, durationMs: 60_000)),
+            .init(timeOffset: 150_000, channelA: .init(strength: 20, waveform: .heartbeat, frequency: 14, pulseWidth: 58, durationMs: 30_000), channelB: .init(strength: 12, waveform: .breath, frequency: 10, pulseWidth: 55, durationMs: 30_000)),
+            .init(timeOffset: 180_000, channelA: .init(strength: 30, waveform: .staircase, frequency: 18, pulseWidth: 70, durationMs: 45_000), channelB: .init(strength: 18, waveform: .alternating, frequency: 16, pulseWidth: 62, durationMs: 45_000)),
+            .init(timeOffset: 225_000, channelA: .init(strength: 14, waveform: .breath, frequency: 8, pulseWidth: 55, durationMs: 45_000), channelB: .init(strength: 8, waveform: .wave, frequency: 8, pulseWidth: 50, durationMs: 45_000))
+        ],
+        loopCount: 2,
+        autoProgress: true,
+        transitionSmoothness: 0.9,
+        pauseBetweenSteps: 1_500
+    )
+
+    static let allBuiltins: [Program] = [tensionScene, warmupProgression, intervalTraining]
 }
