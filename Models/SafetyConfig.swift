@@ -67,6 +67,48 @@ struct EdgeModeConfig: Codable, Equatable {
     var maxStrength: Double
     var rampStep: Double
     var cooldownSeconds: Double
+    var adjustsStrength: Bool
+    var adjustsFrequency: Bool
+    var adjustsWaveform: Bool
+    var frequencyFloor: Double
+    var frequencyCeiling: Double
+    var buildingWaveform: WaveformType
+    var holdingWaveform: WaveformType
+    var easingWaveform: WaveformType
+
+    init(isEnabled: Bool,
+         targetBPM: Double,
+         peakBPM: Double,
+         recoveryBPM: Double,
+         minStrength: Double,
+         maxStrength: Double,
+         rampStep: Double,
+         cooldownSeconds: Double,
+         adjustsStrength: Bool = true,
+         adjustsFrequency: Bool = false,
+         adjustsWaveform: Bool = false,
+         frequencyFloor: Double = 8,
+         frequencyCeiling: Double = 40,
+         buildingWaveform: WaveformType = .wave,
+         holdingWaveform: WaveformType = .heartbeat,
+         easingWaveform: WaveformType = .breath) {
+        self.isEnabled = isEnabled
+        self.targetBPM = targetBPM
+        self.peakBPM = peakBPM
+        self.recoveryBPM = recoveryBPM
+        self.minStrength = minStrength
+        self.maxStrength = maxStrength
+        self.rampStep = rampStep
+        self.cooldownSeconds = cooldownSeconds
+        self.adjustsStrength = adjustsStrength
+        self.adjustsFrequency = adjustsFrequency
+        self.adjustsWaveform = adjustsWaveform
+        self.frequencyFloor = frequencyFloor
+        self.frequencyCeiling = frequencyCeiling
+        self.buildingWaveform = buildingWaveform
+        self.holdingWaveform = holdingWaveform
+        self.easingWaveform = easingWaveform
+    }
 
     static let `default` = EdgeModeConfig(
         isEnabled: false,
@@ -76,8 +118,56 @@ struct EdgeModeConfig: Codable, Equatable {
         minStrength: 14,
         maxStrength: 58,
         rampStep: 2,
-        cooldownSeconds: 8
+        cooldownSeconds: 8,
+        adjustsStrength: true,
+        adjustsFrequency: true,
+        adjustsWaveform: true,
+        frequencyFloor: 8,
+        frequencyCeiling: 40,
+        buildingWaveform: .wave,
+        holdingWaveform: .heartbeat,
+        easingWaveform: .breath
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled
+        case targetBPM
+        case peakBPM
+        case recoveryBPM
+        case minStrength
+        case maxStrength
+        case rampStep
+        case cooldownSeconds
+        case adjustsStrength
+        case adjustsFrequency
+        case adjustsWaveform
+        case frequencyFloor
+        case frequencyCeiling
+        case buildingWaveform
+        case holdingWaveform
+        case easingWaveform
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = EdgeModeConfig.default
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? defaults.isEnabled
+        targetBPM = try container.decodeIfPresent(Double.self, forKey: .targetBPM) ?? defaults.targetBPM
+        peakBPM = try container.decodeIfPresent(Double.self, forKey: .peakBPM) ?? defaults.peakBPM
+        recoveryBPM = try container.decodeIfPresent(Double.self, forKey: .recoveryBPM) ?? defaults.recoveryBPM
+        minStrength = try container.decodeIfPresent(Double.self, forKey: .minStrength) ?? defaults.minStrength
+        maxStrength = try container.decodeIfPresent(Double.self, forKey: .maxStrength) ?? defaults.maxStrength
+        rampStep = try container.decodeIfPresent(Double.self, forKey: .rampStep) ?? defaults.rampStep
+        cooldownSeconds = try container.decodeIfPresent(Double.self, forKey: .cooldownSeconds) ?? defaults.cooldownSeconds
+        adjustsStrength = try container.decodeIfPresent(Bool.self, forKey: .adjustsStrength) ?? defaults.adjustsStrength
+        adjustsFrequency = try container.decodeIfPresent(Bool.self, forKey: .adjustsFrequency) ?? defaults.adjustsFrequency
+        adjustsWaveform = try container.decodeIfPresent(Bool.self, forKey: .adjustsWaveform) ?? defaults.adjustsWaveform
+        frequencyFloor = try container.decodeIfPresent(Double.self, forKey: .frequencyFloor) ?? defaults.frequencyFloor
+        frequencyCeiling = try container.decodeIfPresent(Double.self, forKey: .frequencyCeiling) ?? defaults.frequencyCeiling
+        buildingWaveform = try container.decodeIfPresent(WaveformType.self, forKey: .buildingWaveform) ?? defaults.buildingWaveform
+        holdingWaveform = try container.decodeIfPresent(WaveformType.self, forKey: .holdingWaveform) ?? defaults.holdingWaveform
+        easingWaveform = try container.decodeIfPresent(WaveformType.self, forKey: .easingWaveform) ?? defaults.easingWaveform
+    }
 }
 
 enum HeartRateSafetyState: Equatable {
@@ -222,6 +312,39 @@ struct EdgeModePolicy {
         let multiplier = bpm < recoveryBPM ? 1.5 : 1
         let target = clamped(boundedCurrent + config.rampStep * multiplier)
         return .building(bpm: bpm, targetStrength: target)
+    }
+
+    func targetFrequency(bpm: Double, placementProfile: PadPlacementProfile? = nil) -> Double {
+        let lower = min(config.frequencyFloor, config.frequencyCeiling)
+        let upper = max(config.frequencyFloor, config.frequencyCeiling)
+        let boundedLower = placementProfile.map { max(lower, $0.minFrequency) } ?? lower
+        let boundedUpper = placementProfile.map { min(upper, $0.maxFrequency) } ?? upper
+        let span = max(1, config.peakBPM - config.recoveryBPM)
+        let progress = max(0, min(1, (bpm - config.recoveryBPM) / span))
+        let curve = progress * progress * (3 - 2 * progress)
+        let target = boundedLower + (boundedUpper - boundedLower) * curve
+        guard let placementProfile else { return target }
+        let focus = boundedLower + (boundedUpper - boundedLower) * (0.38 + placementProfile.mobility * 0.22)
+        return target + (focus - target) * placementProfile.sensitivity * 0.22
+    }
+
+    func targetWaveform(for state: EdgeModeState, placementProfile: PadPlacementProfile? = nil) -> WaveformType? {
+        switch state {
+        case .building:
+            if placementProfile?.sensitivity ?? 0 > 0.75 {
+                return placementProfile?.normalWaveform ?? .wave
+            }
+            return config.buildingWaveform
+        case .holding:
+            if placementProfile?.sensitivity ?? 0 > 0.65 {
+                return placementProfile?.elevatedWaveform ?? .breath
+            }
+            return config.holdingWaveform
+        case .easing:
+            return placementProfile?.highWaveform ?? config.easingWaveform
+        case .inactive, .armed:
+            return nil
+        }
     }
 
     private func clamped(_ strength: Double) -> Double {

@@ -25,6 +25,7 @@ struct ContentView: View {
     @AppStorage("ycy.onboardingDone") private var onboardingDone = false
     @State private var selectedTab: MainTab = .control
     @State private var showConnectionSetup = false
+    @State private var showSessionStatus = false
 
     var body: some View {
         tabbedContent
@@ -41,6 +42,15 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showConnectionSetup) {
             ConnectionSetupView()
+        }
+        .sheet(isPresented: $showSessionStatus) {
+            SessionStatusSheet(
+                sessionTitle: sessionTitle,
+                sessionTime: sessionTime,
+                sessionDetail: sessionDetail,
+                connectionText: connectionText,
+                statusColor: sessionStateColor
+            )
         }
     }
 
@@ -95,82 +105,102 @@ struct ContentView: View {
 
     private var sessionAccessory: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(sessionStateColor)
-                .frame(width: 10, height: 10)
-                .shadow(color: sessionStateColor.opacity(0.45), radius: 4)
+            Button {
+                showSessionStatus = true
+            } label: {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(sessionStateColor)
+                        .frame(width: 10, height: 10)
+                        .shadow(color: sessionStateColor.opacity(0.45), radius: 4)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(sessionTitle)
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(sessionTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(sessionTime)
-                        .font(.system(.title3, design: .monospaced, weight: .bold))
-                        .lineLimit(1)
-                    Text(sessionDetail)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(sessionTime)
+                                .font(.system(.title3, design: .monospaced, weight: .bold))
+                                .lineLimit(1)
+                            Text(sessionDetail)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.72)
+                        }
+                    }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .layoutPriority(1)
+            .accessibilityLabel("\(sessionTitle), \(sessionTime), \(sessionDetail)")
 
             Spacer(minLength: 6)
             primaryActionButton
         }
         .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(sessionTitle), \(sessionTime), \(sessionDetail)")
     }
 
-    @ViewBuilder
     private var primaryActionButton: some View {
-        if #available(iOS 26.0, *) {
-            Button(action: primaryAction) {
-                primaryActionLabel
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.large)
-            .tint(primaryActionColor)
-            .disabled(connectionText == "Connecting")
-        } else {
-            Button(action: primaryAction) {
-                primaryActionLabel
-                    .foregroundColor(.white)
-                    .background(primaryActionColor)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .disabled(connectionText == "Connecting")
+        Button(action: primaryAction) {
+            primaryActionLabel
         }
+        .buttonStyle(.plain)
+        .disabled(connectionText == "Connecting")
     }
 
     private var primaryActionLabel: some View {
         Label(primaryActionTitle, systemImage: primaryActionIcon)
-            .font(.subheadline.weight(.bold))
+            .font(.caption.weight(.bold))
             .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .frame(width: 92, height: 42)
+            .minimumScaleFactor(0.82)
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(width: primaryActionWidth, height: 34)
+            .background {
+                Capsule()
+                    .fill(primaryActionColor.gradient)
+                    .shadow(color: primaryActionColor.opacity(0.24), radius: 5, y: 2)
+            }
             .accessibilityLabel(primaryActionTitle)
     }
 
-    private func primaryAction() {
-        guard connectionText == "Connected" else {
-            notify(.warning)
-            showConnectionSetup = true
-            return
+    private var primaryActionWidth: CGFloat {
+        switch primaryActionTitle {
+        case "Connecting":
+            return 138
+        case "Connect":
+            return 124
+        default:
+            return 112
         }
+    }
 
+    private func primaryAction() {
         if controlVM.isSessionActive {
             notify(.warning)
             controlVM.stopSession()
-        } else {
+            return
+        }
+
+        if connectionText == "Connected" {
             notify(.success)
             controlVM.startSession()
+            return
         }
+
+        if settingsVM.connectionConfig.mode == .http {
+            notify(.success)
+            controlVM.connect()
+            return
+        }
+
+        notify(.warning)
+        showConnectionSetup = true
     }
 
     private var primaryActionTitle: String {
@@ -191,7 +221,7 @@ struct ContentView: View {
         case "Connecting":
             return "antenna.radiowaves.left.and.right"
         default:
-            return "wifi.slash"
+            return "antenna.radiowaves.left.and.right.slash"
         }
     }
 
@@ -296,6 +326,58 @@ struct ContentView: View {
     }
 }
 
+struct SessionStatusSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var controlVM: ControlVM
+    @EnvironmentObject var settingsVM: SettingsVM
+    let sessionTitle: String
+    let sessionTime: String
+    let sessionDetail: String
+    let connectionText: String
+    let statusColor: Color
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Session") {
+                    LabeledContent("State") {
+                        Label(sessionTitle, systemImage: "circle.fill")
+                            .foregroundStyle(statusColor)
+                    }
+                    LabeledContent("Elapsed", value: sessionTime)
+                    LabeledContent("Status", value: sessionDetail)
+                }
+
+                Section("Output") {
+                    LabeledContent("Channel A", value: "\(Int(controlVM.channelA.strength.rounded()))%")
+                    LabeledContent("Channel B", value: "\(Int(controlVM.channelB.strength.rounded()))%")
+                    LabeledContent("Maximum", value: "\(Int(controlVM.currentMaxStrength.rounded()))%")
+                    LabeledContent("Paused", value: controlVM.isPaused ? "Yes" : "No")
+                }
+
+                Section("Connection") {
+                    LabeledContent("Mode", value: settingsVM.connectionConfig.mode.rawValue)
+                    LabeledContent("State", value: connectionText)
+                    if controlVM.watchWorkoutStatus != "unknown" {
+                        LabeledContent("Watch Workout", value: controlVM.watchWorkoutStatus.capitalized)
+                    }
+                    if let bpm = controlVM.heartRateDisplayBPM {
+                        LabeledContent("Heart Rate", value: "\(Int(bpm.rounded())) BPM")
+                    }
+                }
+            }
+            .navigationTitle("Session Status")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.height(360), .medium])
+    }
+}
+
 // MARK: - Onboarding View
 
 struct OnboardingView: View {
@@ -307,7 +389,7 @@ struct OnboardingView: View {
         OnboardingPage(icon: "bolt.fill", title: "Dual Channel Control",
                        subtitle: "Independently control two channels with different waveforms, strengths, and timing. Or sync them together."),
         OnboardingPage(icon: "waveform", title: "Waveform Engine",
-                       subtitle: "Choose from 11 built-in waveforms or draw your own. Adjust frequency, pulse width, and phase offset."),
+                       subtitle: "Choose from 22 built-in waveforms or draw your own. Adjust frequency, pulse width, and phase offset."),
         OnboardingPage(icon: "shield.fill", title: "Safety First",
                        subtitle: "Max strength limits, session timers, ramp-up protection, and emergency stop. Shake to stop all output."),
         OnboardingPage(icon: "play.circle.fill", title: "Presets & Programs",

@@ -4,6 +4,7 @@ import Foundation
 
 enum WaveformType: Codable, Equatable, Hashable, Identifiable {
     case pulse(count: PulseCount)
+    case wave
     case sine
     case square
     case triangle
@@ -19,10 +20,16 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
     case glide
     case flutter
     case crescendo
+    case echo
     case random
     case custom(name: String, points: [Double])
 
     var id: String { name }
+
+    var isCustom: Bool {
+        if case .custom = self { return true }
+        return false
+    }
 
     var name: String {
         switch self {
@@ -30,6 +37,7 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .pulse(.double): return "Double Pulse"
         case .pulse(.triple): return "Triple Pulse"
         case .pulse(.quad): return "Quad Pulse"
+        case .wave: return "Wave"
         case .sine: return "Sine"
         case .square: return "Square"
         case .triangle: return "Triangle"
@@ -45,6 +53,7 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .glide: return "Glide"
         case .flutter: return "Flutter"
         case .crescendo: return "Crescendo"
+        case .echo: return "Echo"
         case .random: return "Random"
         case .custom(let name, _): return name
         }
@@ -53,6 +62,7 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
     var icon: String {
         switch self {
         case .pulse: return "bolt"
+        case .wave: return "water.waves"
         case .sine: return "waveform"
         case .square: return "square"
         case .triangle: return "triangle"
@@ -68,8 +78,24 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .glide: return "water.waves"
         case .flutter: return "sparkles"
         case .crescendo: return "chart.line.uptrend.xyaxis"
+        case .echo: return "dot.radiowaves.left.and.right"
         case .random: return "sparkle"
         case .custom: return "pencil"
+        }
+    }
+
+    var isSharpForSensitivePlacement: Bool {
+        switch self {
+        case .square, .sawtooth, .random, .flutter, .crescendo:
+            return true
+        case .pulse(let count):
+            return count.rawValue > 2
+        case .custom(_, let points):
+            guard points.count > 1 else { return false }
+            let maxJump = zip(points, points.dropFirst()).map { abs($0.0 - $0.1) }.max() ?? 0
+            return maxJump > 1.2
+        case .wave, .sine, .triangle, .rampUp, .rampDown, .heartbeat, .staircase, .alternating, .sweep, .tremolo, .breath, .glide, .echo:
+            return false
         }
     }
 }
@@ -98,6 +124,7 @@ extension WaveformType {
         .pulse(count: .double),
         .pulse(count: .triple),
         .pulse(count: .quad),
+        .wave,
         .sine,
         .square,
         .triangle,
@@ -113,6 +140,7 @@ extension WaveformType {
         .glide,
         .flutter,
         .crescendo,
+        .echo,
         .random
     ]
 }
@@ -132,6 +160,8 @@ actor WaveformEngine {
         switch type {
         case .pulse(let count):
             points = generatePulse(count: count, samples: samples)
+        case .wave:
+            points = generateWave(samples: samples)
         case .sine:
             points = generateSine(samples: samples, frequency: frequency)
         case .square:
@@ -162,6 +192,8 @@ actor WaveformEngine {
             points = generateFlutter(samples: samples, frequency: frequency)
         case .crescendo:
             points = generateCrescendo(samples: samples, frequency: frequency)
+        case .echo:
+            points = generateEcho(samples: samples, frequency: frequency)
         case .random:
             points = (0..<samples).map { _ in Double.random(in: -1...1) }
         case .custom(_, let pts):
@@ -183,6 +215,13 @@ actor WaveformEngine {
             }
         }
         return result
+    }
+
+    private func generateWave(samples: Int) -> [Double] {
+        (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            return sin(2 * .pi * t * 2)
+        }
     }
 
     private func generateSine(samples: Int, frequency: Double) -> [Double] {
@@ -289,6 +328,15 @@ actor WaveformEngine {
         return (0..<samples).map { i in
             let t = Double(i) / Double(max(1, samples - 1))
             let envelope = min(1, 0.15 + t * 0.95)
+            return envelope * sin(2 * .pi * t * cycles)
+        }
+    }
+
+    private func generateEcho(samples: Int, frequency: Double) -> [Double] {
+        let cycles = max(3, min(9, frequency / 4))
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let envelope = max(0.18, 1 - t * 0.82)
             return envelope * sin(2 * .pi * t * cycles)
         }
     }

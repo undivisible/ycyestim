@@ -3,7 +3,7 @@ name = "YCYEStim"
 version = "1.0.0"
 
 [app]
-bundle_id = "com.ycy.YCYEStim"
+bundle_id = "dev.undivisible.estim"
 deployment_target = "18.0"
 sources = "."
 resources = ["Resources"]

@@ -20,6 +20,7 @@ final class BluetoothService: NSObject {
     private var _batteryLevel: Int? = nil
     private var _firmwareVersion: String? = nil
     private var connectContinuation: CheckedContinuation<Void, Error>?
+    private let waveformEngine = WaveformEngine()
 
     let peripheralSubject = PassthroughSubject<[BLEPeripheralInfo], Never>()
     let connectionSubject = PassthroughSubject<Bool, Never>()
@@ -99,27 +100,46 @@ final class BluetoothService: NSObject {
         }
 
         let command = buildChannelCommand(channel: channel, strength: strength, durationMs: durationMs)
-        p.writeValue(command, for: char, type: .withoutResponse)
+        write(command, to: char, on: p)
     }
 
-    func sendRealtimeControl(channelA: ChannelState, channelB: ChannelState, adaptiveStrengthLimit: Double) async throws {
+    func sendRealtimeControl(channelA: ChannelState, channelB: ChannelState, adaptiveStrengthLimit: Double, protocolVersion: BLEProtocolVersion, outputMode: BLEOutputMode) async throws {
         guard let p = peripheral, let char = characteristics["tx"] else {
             throw BLEError.notConnected
         }
 
-        let command = buildRealtimeCommand(
-            channelA: channelA,
-            channelB: channelB,
-            adaptiveStrengthLimit: adaptiveStrengthLimit
-        )
-        p.writeValue(command, for: char, type: .withoutResponse)
+        let maxPairs = max(1, min(100, (p.maximumWriteValueLength(for: .withoutResponse) - 7) / 2))
+        let commands: [Data]
+        switch protocolVersion {
+        case .gen1:
+            commands = buildGen1OutputCommands(channelA: channelA, channelB: channelB, adaptiveStrengthLimit: adaptiveStrengthLimit, outputMode: outputMode)
+        case .gen2:
+            commands = await buildGen2OutputCommands(
+                channelA: channelA,
+                channelB: channelB,
+                adaptiveStrengthLimit: adaptiveStrengthLimit,
+                maxPairs: maxPairs,
+                outputMode: outputMode
+            )
+        }
+        for command in commands {
+            write(command, to: char, on: p)
+            if commands.count > 1 {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+        }
     }
 
-    func emergencyStop() async throws {
+    func emergencyStop(protocolVersion: BLEProtocolVersion = .gen2) async throws {
         guard let p = peripheral, let char = characteristics["tx"] else {
             throw BLEError.notConnected
         }
-        p.writeValue(buildEmergencyCommand(), for: char, type: .withoutResponse)
+        write(buildEmergencyCommand(protocolVersion: protocolVersion), to: char, on: p)
+    }
+
+    private func write(_ command: Data, to characteristic: CBCharacteristic, on peripheral: CBPeripheral) {
+        let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
+        peripheral.writeValue(command, for: characteristic, type: type)
     }
 
     private func buildChannelCommand(channel: String, strength: Int, durationMs: Int) -> Data {
@@ -146,11 +166,102 @@ final class BluetoothService: NSObject {
         return data
     }
 
+    private func buildGen2OutputCommands(channelA: ChannelState, channelB: ChannelState, adaptiveStrengthLimit: Double, maxPairs: Int, outputMode: BLEOutputMode) async -> [Data] {
+        if outputMode == .compatibility {
+            return [buildFixedModeCommand(channelA: channelA, channelB: channelB, adaptiveStrengthLimit: adaptiveStrengthLimit)]
+        }
+
+        var commands = [
+            buildRealtimeCommand(channelA: channelA, channelB: channelB, adaptiveStrengthLimit: adaptiveStrengthLimit)
+        ]
+
+        if let command = await buildFrequencyModeCommand(channelA, selector: 0x01, adaptiveStrengthLimit: adaptiveStrengthLimit, maxPairs: maxPairs) {
+            commands.append(command)
+        }
+        if let command = await buildFrequencyModeCommand(channelB, selector: 0x02, adaptiveStrengthLimit: adaptiveStrengthLimit, maxPairs: maxPairs) {
+            commands.append(command)
+        }
+
+        return commands
+    }
+
+    private func buildGen1OutputCommands(channelA: ChannelState, channelB: ChannelState, adaptiveStrengthLimit: Double, outputMode: BLEOutputMode) -> [Data] {
+        if !channelA.isEnabled && !channelB.isEnabled {
+            return [buildGen1ChannelCommand(channel: channelA, selector: 0x03, adaptiveStrengthLimit: adaptiveStrengthLimit, outputMode: outputMode)]
+        }
+        if channelA.isEnabled && channelB.isEnabled {
+            var synced = channelA
+            synced.strength = max(channelA.strength, channelB.strength)
+            return [buildGen1ChannelCommand(channel: synced, selector: 0x03, adaptiveStrengthLimit: adaptiveStrengthLimit, outputMode: outputMode)]
+        }
+        return [
+            buildGen1ChannelCommand(channel: channelA, selector: 0x01, adaptiveStrengthLimit: adaptiveStrengthLimit, outputMode: outputMode),
+            buildGen1ChannelCommand(channel: channelB, selector: 0x02, adaptiveStrengthLimit: adaptiveStrengthLimit, outputMode: outputMode)
+        ]
+    }
+
+    private func buildGen1ChannelCommand(channel: ChannelState, selector: UInt8, adaptiveStrengthLimit: Double, outputMode: BLEOutputMode = .realtime) -> Data {
+        var data = Data()
+        data.append(0x35)
+        data.append(0x11)
+        data.append(selector)
+        data.append(channel.isEnabled && channel.strength > 0 ? 0x01 : 0x00)
+        appendDeviceStrength(channel, adaptiveStrengthLimit: adaptiveStrengthLimit, to: &data)
+        if channel.isEnabled && channel.strength > 0 {
+            if outputMode == .realtime && channel.waveform.isCustom {
+                data.append(0x11)
+                data.append(UInt8(max(1, min(100, Int(channel.frequency.rounded())))))
+                data.append(UInt8(max(1, min(100, channel.pulseWidth))))
+            } else {
+                data.append(fixedMode(for: channel.waveform))
+                data.append(0x00)
+                data.append(0x00)
+            }
+        } else {
+            data.append(0x00)
+            data.append(0x00)
+            data.append(0x00)
+        }
+        data.append(checksum(data))
+        return data
+    }
+
+    private func buildFixedModeCommand(channelA: ChannelState, channelB: ChannelState, adaptiveStrengthLimit: Double) -> Data {
+        var data = Data()
+        data.append(0x35)
+        data.append(0x11)
+        data.append(0x01)
+        appendDeviceStrength(channelA, adaptiveStrengthLimit: adaptiveStrengthLimit, to: &data)
+        data.append(channelA.isEnabled && channelA.strength > 0 ? fixedMode(for: channelA.waveform) : 0x00)
+        appendDeviceStrength(channelB, adaptiveStrengthLimit: adaptiveStrengthLimit, to: &data)
+        data.append(channelB.isEnabled && channelB.strength > 0 ? fixedMode(for: channelB.waveform) : 0x00)
+        data.append(checksum(data))
+        return data
+    }
+
+    private func buildFrequencyModeCommand(_ channel: ChannelState, selector: UInt8, adaptiveStrengthLimit: Double, maxPairs: Int) async -> Data? {
+        guard channel.isEnabled, channel.strength > 0 else { return nil }
+        let pairs = await waveformPairs(for: channel, maxPairs: maxPairs)
+        guard !pairs.isEmpty else { return nil }
+
+        var data = Data()
+        data.append(0x35)
+        data.append(0x11)
+        data.append(0x03)
+        data.append(selector)
+        appendDeviceStrength(channel, adaptiveStrengthLimit: adaptiveStrengthLimit, to: &data)
+        for pair in pairs {
+            data.append(pair.frequency)
+            data.append(pair.pulseWidth)
+        }
+        data.append(checksum(data))
+        return data
+    }
+
     private func appendRealtimeChannel(_ channel: ChannelState, adaptiveStrengthLimit: Double, to data: inout Data) {
-        let strength = channel.isEnabled ? min(channel.strength, adaptiveStrengthLimit) : 0
-        let deviceStrength = UInt16(max(0, min(276, Int((strength / 100.0 * 276.0).rounded()))))
+        let deviceStrength = deviceStrength(for: channel, adaptiveStrengthLimit: adaptiveStrengthLimit)
         let frequency = UInt8(max(1, min(100, Int(channel.frequency.rounded()))))
-        let pulseWidth = UInt8(max(0, min(100, channel.pulseWidth / 10)))
+        let pulseWidth = UInt8(max(0, min(100, channel.pulseWidth)))
 
         data.append(UInt8((deviceStrength >> 8) & 0xFF))
         data.append(UInt8(deviceStrength & 0xFF))
@@ -158,8 +269,78 @@ final class BluetoothService: NSObject {
         data.append(pulseWidth)
     }
 
-    private func buildEmergencyCommand() -> Data {
-        buildRealtimeCommand(channelA: .init(id: .a), channelB: .init(id: .b), adaptiveStrengthLimit: 100)
+    private func appendDeviceStrength(_ channel: ChannelState, adaptiveStrengthLimit: Double, to data: inout Data) {
+        let strength = deviceStrength(for: channel, adaptiveStrengthLimit: adaptiveStrengthLimit)
+        data.append(UInt8((strength >> 8) & 0xFF))
+        data.append(UInt8(strength & 0xFF))
+    }
+
+    private func deviceStrength(for channel: ChannelState, adaptiveStrengthLimit: Double) -> UInt16 {
+        let strength = channel.isEnabled ? min(channel.strength, adaptiveStrengthLimit) : 0
+        return UInt16(max(0, min(276, Int((strength / 100.0 * 276.0).rounded()))))
+    }
+
+    private func fixedMode(for waveform: WaveformType) -> UInt8 {
+        switch waveform {
+        case .pulse(let count):
+            switch count {
+            case .single: return 0x01
+            case .double: return 0x02
+            case .triple: return 0x03
+            case .quad: return 0x04
+            }
+        case .sine, .wave:
+            return 0x05
+        case .square:
+            return 0x06
+        case .sawtooth:
+            return 0x07
+        case .triangle:
+            return 0x08
+        case .rampUp:
+            return 0x09
+        case .rampDown:
+            return 0x0A
+        case .random:
+            return 0x0B
+        case .heartbeat:
+            return 0x0C
+        case .staircase:
+            return 0x0D
+        case .alternating, .sweep:
+            return 0x0E
+        case .tremolo, .breath, .glide, .flutter, .crescendo:
+            return 0x0F
+        case .echo, .custom:
+            return 0x10
+        }
+    }
+
+    private func waveformPairs(for channel: ChannelState, maxPairs: Int) async -> [(frequency: UInt8, pulseWidth: UInt8)] {
+        let samples = max(1, maxPairs)
+        let points = await waveformEngine.generate(channel.waveform, samples: samples, frequency: channel.frequency)
+        let baseFrequency = max(1, min(100, Int(channel.frequency.rounded())))
+        let maxPulse = max(0, min(100, channel.pulseWidth))
+        let swing = max(1, Int((Double(baseFrequency) * 0.24).rounded()))
+
+        return points.prefix(samples).map { point in
+            let normalized = max(0, min(1, (point + 1) / 2))
+            let pulse = Int((Double(maxPulse) * (0.18 + normalized * 0.82)).rounded())
+            let frequency = baseFrequency + Int((point * Double(swing)).rounded())
+            return (
+                frequency: UInt8(max(1, min(100, frequency))),
+                pulseWidth: UInt8(max(0, min(100, pulse)))
+            )
+        }
+    }
+
+    private func buildEmergencyCommand(protocolVersion: BLEProtocolVersion) -> Data {
+        switch protocolVersion {
+        case .gen1:
+            return buildGen1ChannelCommand(channel: .init(id: .a), selector: 0x03, adaptiveStrengthLimit: 100)
+        case .gen2:
+            return buildRealtimeCommand(channelA: .init(id: .a), channelB: .init(id: .b), adaptiveStrengthLimit: 100)
+        }
     }
 
     private func checksum(_ data: Data) -> UInt8 {
@@ -383,7 +564,7 @@ enum BLEError: Error, LocalizedError {
         case .scanFailed: return "BLE scan failed"
         case .connectionFailed: return "Connection failed"
         case .connectionTimedOut: return "Connection timed out. Move the device closer, wake it, then scan again."
-        case .incompatibleDevice: return "This is not a supported YCY Gen 2 Bluetooth device."
+        case .incompatibleDevice: return "This is not a supported YCY Bluetooth device."
         case .notConnectable: return "This Bluetooth advertisement is not connectable."
         case .writeFailed: return "Write to device failed"
         }

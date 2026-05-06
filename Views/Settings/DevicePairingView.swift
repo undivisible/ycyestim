@@ -29,7 +29,16 @@ struct DevicePairingView: View {
                 knownDeviceSection
 
                 Section("New Devices") {
-                    if newPeripherals.isEmpty {
+                    if deviceVM.device != nil {
+                        HStack {
+                            Spacer()
+                            Text("Disconnect the current device before scanning for another one.")
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                            Spacer()
+                        }
+                        .padding()
+                    } else if newPeripherals.isEmpty {
                         HStack {
                             Spacer()
                             VStack(spacing: 12) {
@@ -81,7 +90,7 @@ struct DevicePairingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !deviceVM.isScanning {
+                    if deviceVM.device == nil && !deviceVM.isScanning {
                         Button("Scan") {
                             startScan()
                         }
@@ -89,7 +98,9 @@ struct DevicePairingView: View {
                 }
             }
             .onAppear {
-                startScan()
+                if deviceVM.device == nil {
+                    startScan()
+                }
             }
             .onDisappear {
                 deviceVM.stopScan()

@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settingsVM: SettingsVM
     @EnvironmentObject var controlVM: ControlVM
+    @EnvironmentObject var deviceVM: DeviceVM
 
     var body: some View {
         NavigationStack {
@@ -63,15 +64,39 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
 
                     if settingsVM.connectionConfig.mode == .ble {
+                        Picker("Device Generation", selection: $settingsVM.connectionConfig.bleProtocolVersion) {
+                            ForEach(BLEProtocolVersion.allCases) { version in
+                                Text(version.rawValue).tag(version)
+                            }
+                        }
+                        Picker("Output Mode", selection: $settingsVM.connectionConfig.bleOutputMode) {
+                            ForEach(BLEOutputMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
                         Toggle("Auto Connect Last Device", isOn: $settingsVM.connectionConfig.bleAutoConnect)
-                        NavigationLink("Scan for Devices") {
-                            DevicePairingView()
+                        if let device = deviceVM.device {
+                            LabeledContent("Connected Device") {
+                                Text(device.displayName)
+                            }
+                            Button(role: .destructive) {
+                                controlVM.disconnect()
+                                deviceVM.disconnect()
+                            } label: {
+                                Label("Disconnect Device", systemImage: "antenna.radiowaves.left.and.right.slash")
+                            }
+                        } else {
+                            NavigationLink("Scan for Devices") {
+                                DevicePairingView()
+                            }
                         }
                     }
 
                     if settingsVM.connectionConfig.mode == .http {
                         TextField("Server URL", text: $settingsVM.connectionConfig.httpServerURL)
                         TextField("API Key", text: $settingsVM.connectionConfig.httpAPIKey)
+                        TextField("Command ID", text: $settingsVM.connectionConfig.httpCommandID)
+                        TextField("Stop ID", text: $settingsVM.connectionConfig.httpStopCommandID)
                         Toggle("Auto Reconnect", isOn: $settingsVM.connectionConfig.httpAutoReconnect)
                     }
                 } header: {

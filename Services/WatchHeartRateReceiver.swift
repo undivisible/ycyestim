@@ -3,9 +3,15 @@ import WatchConnectivity
 
 final class WatchHeartRateReceiver: NSObject, WCSessionDelegate, @unchecked Sendable {
     private let onReading: @MainActor @Sendable (HeartRateReading) -> Void
+    private let onWorkoutStatus: @MainActor @Sendable (String) -> Void
+    private let onEmergencyStop: @MainActor @Sendable () -> Void
 
-    init(onReading: @escaping @MainActor @Sendable (HeartRateReading) -> Void) {
+    init(onReading: @escaping @MainActor @Sendable (HeartRateReading) -> Void,
+         onWorkoutStatus: @escaping @MainActor @Sendable (String) -> Void,
+         onEmergencyStop: @escaping @MainActor @Sendable () -> Void) {
         self.onReading = onReading
+        self.onWorkoutStatus = onWorkoutStatus
+        self.onEmergencyStop = onEmergencyStop
     }
 
     func start() {
@@ -42,6 +48,16 @@ final class WatchHeartRateReceiver: NSObject, WCSessionDelegate, @unchecked Send
     }
 
     private func emitReading(from payload: [String: Any]) {
+        if payload["emergencyStop"] as? Bool == true {
+            Task { @MainActor in
+                onEmergencyStop()
+            }
+        }
+        if let status = payload["workoutStatus"] as? String {
+            Task { @MainActor in
+                onWorkoutStatus(status)
+            }
+        }
         guard let bpm = payload["bpm"] as? Double else { return }
         let timestamp = payload["timestamp"] as? TimeInterval ?? Date().timeIntervalSince1970
         let reading = HeartRateReading(bpm: bpm, sampleDate: Date(timeIntervalSince1970: timestamp))

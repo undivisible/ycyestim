@@ -6,7 +6,7 @@ A comprehensive SwiftUI iOS app for controlling YCY-YOKONEX Gen 2 electrostimula
 
 - **Liquid Glass UI** — Full iOS 26 glass material support with fallbacks
 - **Multi-Channel Control** — Independent Channel A/B with sync mode
-- **Waveform Engine** — 11 built-in waveforms + custom waveform drawing editor
+- **Waveform Engine** — 22 built-in waveforms + custom waveform drawing editor
 - **Presets & Programs** — 8 built-in presets, 2 programs, full custom creation
 - **Safety System** — Emergency stop, strength ceilings, session timers, ramp rate limits
 - **Adaptive Biometrics** — Optional HealthKit and Apple Watch heart-rate monitoring reduces output during elevated load and can emergency stop at critical thresholds

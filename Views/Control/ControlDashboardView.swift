@@ -37,10 +37,10 @@ struct ControlDashboardView: View {
             QuickPresetSheet()
         }
         .sheet(isPresented: $showChannelDetailA) {
-            ChannelDetailView(channel: controlVM.channelA, isA: true)
+            ChannelDetailView(isA: true)
         }
         .sheet(isPresented: $showChannelDetailB) {
-            ChannelDetailView(channel: controlVM.channelB, isA: false)
+            ChannelDetailView(isA: false)
         }
         .sheet(isPresented: $showConnectionSetup) {
             ConnectionSetupView()
@@ -403,6 +403,12 @@ private struct OutputMeterRow: View {
 
             HStack {
                 Label(channel.waveform.name, systemImage: channel.waveform.icon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer()
+                Label(padSummary, systemImage: channel.placement.icon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Spacer()
                 Text("\(Int(channel.frequency)) Hz")
                 Button(action: onDetails) {
@@ -415,6 +421,13 @@ private struct OutputMeterRow: View {
         .padding(12)
         .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var padSummary: String {
+        if channel.pad1Placement == channel.pad2Placement {
+            return channel.pad1Placement.rawValue
+        }
+        return "\(channel.pad1Placement.rawValue) + \(channel.pad2Placement.rawValue)"
     }
 }
 
@@ -493,6 +506,42 @@ struct EdgeModeSettingsSheet: View {
                     }
                     Slider(value: edgeDouble(\.rampStep), in: 0.5...6, step: 0.5)
                 }
+
+                Section("Automation") {
+                    Toggle("Adjust Strength", isOn: edgeBool(\.adjustsStrength))
+                    Toggle("Adjust Frequency", isOn: edgeBool(\.adjustsFrequency))
+                    Toggle("Adjust Waveform", isOn: edgeBool(\.adjustsWaveform))
+
+                    LabeledContent("Frequency Floor") {
+                        Text("\(Int(settingsVM.edgeModeConfig.frequencyFloor)) Hz")
+                            .monospacedDigit()
+                    }
+                    Slider(value: edgeDouble(\.frequencyFloor), in: 1...settingsVM.edgeModeConfig.frequencyCeiling, step: 1)
+
+                    LabeledContent("Frequency Ceiling") {
+                        Text("\(Int(settingsVM.edgeModeConfig.frequencyCeiling)) Hz")
+                            .monospacedDigit()
+                    }
+                    Slider(value: edgeDouble(\.frequencyCeiling), in: settingsVM.edgeModeConfig.frequencyFloor...50, step: 1)
+
+                    Picker("Building Waveform", selection: edgeWaveform(\.buildingWaveform)) {
+                        ForEach(WaveformType.allBuiltIn) { waveform in
+                            Label(waveform.name, systemImage: waveform.icon).tag(waveform)
+                        }
+                    }
+
+                    Picker("Holding Waveform", selection: edgeWaveform(\.holdingWaveform)) {
+                        ForEach(WaveformType.allBuiltIn) { waveform in
+                            Label(waveform.name, systemImage: waveform.icon).tag(waveform)
+                        }
+                    }
+
+                    Picker("Easing Waveform", selection: edgeWaveform(\.easingWaveform)) {
+                        ForEach(WaveformType.allBuiltIn) { waveform in
+                            Label(waveform.name, systemImage: waveform.icon).tag(waveform)
+                        }
+                    }
+                }
             }
             .navigationTitle("Edge Mode")
             .navigationBarTitleDisplayMode(.inline)
@@ -506,6 +555,26 @@ struct EdgeModeSettingsSheet: View {
     }
 
     private func edgeDouble(_ keyPath: WritableKeyPath<EdgeModeConfig, Double>) -> Binding<Double> {
+        Binding(
+            get: { settingsVM.edgeModeConfig[keyPath: keyPath] },
+            set: { value in
+                settingsVM.edgeModeConfig[keyPath: keyPath] = value
+                settingsVM.saveAll()
+            }
+        )
+    }
+
+    private func edgeBool(_ keyPath: WritableKeyPath<EdgeModeConfig, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { settingsVM.edgeModeConfig[keyPath: keyPath] },
+            set: { value in
+                settingsVM.edgeModeConfig[keyPath: keyPath] = value
+                settingsVM.saveAll()
+            }
+        )
+    }
+
+    private func edgeWaveform(_ keyPath: WritableKeyPath<EdgeModeConfig, WaveformType>) -> Binding<WaveformType> {
         Binding(
             get: { settingsVM.edgeModeConfig[keyPath: keyPath] },
             set: { value in
@@ -665,8 +734,8 @@ struct WaveformSettingsSheet: View {
             signalSlider(
                 title: "Pulse Width",
                 value: pulseWidthBinding,
-                range: 50...1000,
-                step: 10,
+                range: 0...100,
+                step: 1,
                 valueText: "\(selectedChannel.pulseWidth) us"
             )
 
@@ -908,7 +977,7 @@ struct SyncedChannelDetailView: View {
                         Text("\(controlVM.channelA.pulseWidth) us")
                             .monospacedDigit()
                     }
-                    Slider(value: syncedPulseWidth, in: 50...1000, step: 10)
+                    Slider(value: syncedPulseWidth, in: 0...100, step: 1)
 
                     LabeledContent("Phase") {
                         Text("\(Int(controlVM.channelA.phaseOffset)) deg")
@@ -928,6 +997,29 @@ struct SyncedChannelDetailView: View {
                         Text("10 min").tag(600_000)
                     }
                     Toggle("Invert Output", isOn: syncedBool(\.isInverted))
+                }
+
+                Section("Pad Locations") {
+                    Picker("A Pad 1", selection: channelAPad1Placement) {
+                        ForEach(PadPlacement.allCases) { placement in
+                            Label(placement.rawValue, systemImage: placement.icon).tag(placement)
+                        }
+                    }
+                    Picker("A Pad 2", selection: channelAPad2Placement) {
+                        ForEach(PadPlacement.allCases) { placement in
+                            Label(placement.rawValue, systemImage: placement.icon).tag(placement)
+                        }
+                    }
+                    Picker("B Pad 1", selection: channelBPad1Placement) {
+                        ForEach(PadPlacement.allCases) { placement in
+                            Label(placement.rawValue, systemImage: placement.icon).tag(placement)
+                        }
+                    }
+                    Picker("B Pad 2", selection: channelBPad2Placement) {
+                        ForEach(PadPlacement.allCases) { placement in
+                            Label(placement.rawValue, systemImage: placement.icon).tag(placement)
+                        }
+                    }
                 }
             }
             .navigationTitle("Channels A+B")
@@ -961,6 +1053,34 @@ struct SyncedChannelDetailView: View {
         )
     }
 
+    private var channelAPad1Placement: Binding<PadPlacement> {
+        Binding(
+            get: { controlVM.channelA.pad1Placement },
+            set: { placement in controlVM.updateChannelA { $0.pad1Placement = placement } }
+        )
+    }
+
+    private var channelAPad2Placement: Binding<PadPlacement> {
+        Binding(
+            get: { controlVM.channelA.pad2Placement },
+            set: { placement in controlVM.updateChannelA { $0.pad2Placement = placement } }
+        )
+    }
+
+    private var channelBPad1Placement: Binding<PadPlacement> {
+        Binding(
+            get: { controlVM.channelB.pad1Placement },
+            set: { placement in controlVM.updateChannelB { $0.pad1Placement = placement } }
+        )
+    }
+
+    private var channelBPad2Placement: Binding<PadPlacement> {
+        Binding(
+            get: { controlVM.channelB.pad2Placement },
+            set: { placement in controlVM.updateChannelB { $0.pad2Placement = placement } }
+        )
+    }
+
     private func syncedDouble(_ keyPath: WritableKeyPath<ChannelState, Double>) -> Binding<Double> {
         Binding(
             get: { controlVM.channelA[keyPath: keyPath] },
@@ -986,6 +1106,8 @@ struct SyncedChannelDetailView: View {
 struct ConnectionSetupView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settingsVM: SettingsVM
+    @EnvironmentObject var controlVM: ControlVM
+    @EnvironmentObject var deviceVM: DeviceVM
 
     var body: some View {
         NavigationStack {
@@ -1003,9 +1125,41 @@ struct ConnectionSetupView: View {
                 switch settingsVM.connectionConfig.mode {
                 case .ble:
                     Section("Bluetooth") {
+                        Picker("Device Generation", selection: $settingsVM.connectionConfig.bleProtocolVersion) {
+                            ForEach(BLEProtocolVersion.allCases) { version in
+                                Text(version.rawValue).tag(version)
+                            }
+                        }
+                        Picker("Output Mode", selection: $settingsVM.connectionConfig.bleOutputMode) {
+                            ForEach(BLEOutputMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
                         Toggle("Auto Connect Last Device", isOn: $settingsVM.connectionConfig.bleAutoConnect)
-                        NavigationLink("Scan for Devices") {
-                            DevicePairingView()
+                        if let device = deviceVM.device {
+                            LabeledContent("Connected Device") {
+                                Text(device.displayName)
+                            }
+                            if let battery = deviceVM.batteryLevel {
+                                LabeledContent("Battery") {
+                                    Text("\(battery)%")
+                                }
+                            }
+                            if let firmware = deviceVM.firmwareVersion {
+                                LabeledContent("Firmware") {
+                                    Text(firmware)
+                                }
+                            }
+                            Button(role: .destructive) {
+                                controlVM.disconnect()
+                                deviceVM.disconnect()
+                            } label: {
+                                Label("Disconnect Device", systemImage: "antenna.radiowaves.left.and.right.slash")
+                            }
+                        } else {
+                            NavigationLink("Scan for Devices") {
+                                DevicePairingView()
+                            }
                         }
                     }
                 case .http:
@@ -1014,12 +1168,17 @@ struct ConnectionSetupView: View {
                             .textInputAutocapitalization(.never)
                         TextField("API Key", text: $settingsVM.connectionConfig.httpAPIKey)
                             .textInputAutocapitalization(.never)
+                        TextField("Command ID", text: $settingsVM.connectionConfig.httpCommandID)
+                            .textInputAutocapitalization(.never)
+                        TextField("Stop ID", text: $settingsVM.connectionConfig.httpStopCommandID)
+                            .textInputAutocapitalization(.never)
                         Toggle("Auto Reconnect", isOn: $settingsVM.connectionConfig.httpAutoReconnect)
                     }
                 }
             }
             .navigationTitle("Connection")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: settingsVM.connectionConfig) { settingsVM.saveAll() }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

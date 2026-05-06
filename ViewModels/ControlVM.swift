@@ -26,6 +26,7 @@ final class ControlVM: ObservableObject {
     @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
     @Published var edgeModeState: EdgeModeState = .inactive
     @Published var latestHeartRateReading: HeartRateReading?
+    @Published var watchWorkoutStatus: String = "unknown"
     @Published var heartRateAuthorizationStatus: HeartRateAuthorizationStatus = .unknown
     @Published var heartRateAuthorizationError: String?
 
@@ -59,9 +60,17 @@ final class ControlVM: ObservableObject {
 
     init() {
         restoreLastControlState()
-        watchHeartRateReceiver = WatchHeartRateReceiver { [weak self] reading in
-            self?.handleWatchHeartRate(reading)
-        }
+        watchHeartRateReceiver = WatchHeartRateReceiver(
+            onReading: { [weak self] reading in
+                self?.handleWatchHeartRate(reading)
+            },
+            onWorkoutStatus: { [weak self] status in
+                self?.handleWatchWorkoutStatus(status)
+            },
+            onEmergencyStop: { [weak self] in
+                Task { try? await self?.emergencyStop() }
+            }
+        )
         watchHeartRateReceiver?.start()
     }
 
@@ -87,7 +96,10 @@ final class ControlVM: ObservableObject {
     }
 
     var currentMaxStrength: Double {
-        max(channelA.strength, channelB.strength)
+        let strengths = [channelA, channelB]
+            .filter(\.isEnabled)
+            .map(\.strength)
+        return strengths.max() ?? 0
     }
 
     var adaptiveStrengthLimit: Double {
@@ -121,10 +133,36 @@ final class ControlVM: ObservableObject {
 
     // MARK: - Session Control
 
+    func connect() {
+        guard !isEmergencyStopped else { return }
+
+        Task {
+            do {
+                try await connectIfNeeded()
+            } catch {
+                connectionStatus = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    func disconnect() {
+        if isSessionActive {
+            stopSession()
+        }
+        switch settingsVM?.connectionConfig.mode ?? .ble {
+        case .ble:
+            bluetoothService.disconnect()
+        case .http:
+            Task { await httpService.disconnect() }
+        }
+        connectionStatus = .disconnected
+    }
+
     func startSession() {
         guard !isEmergencyStopped else { return }
 
         sessionState = .starting
+        sessionElapsedMs = 0
         sessionStartTime = .now
         isPaused = false
         intensityBoost = 0
@@ -135,7 +173,7 @@ final class ControlVM: ObservableObject {
             do {
                 try await connectIfNeeded()
                 sessionState = .active(elapsedMs: 0, currentStep: 0)
-                startSessionTimer()
+                startSessionTimer(resetElapsed: true)
                 startHeartRateSafetyIfNeeded()
                 startRampIfNeeded()
                 try await applyCurrentSettings()
@@ -190,8 +228,23 @@ final class ControlVM: ObservableObject {
         if isPaused {
             sessionTimer?.invalidate()
             rampTimer?.invalidate()
+            isRamping = false
+            Task {
+                do {
+                    try await sendZeroOutput()
+                } catch {
+                    connectionStatus = .error(error.localizedDescription)
+                }
+            }
         } else {
             startSessionTimer()
+            Task {
+                do {
+                    try await applyCurrentSettings()
+                } catch {
+                    connectionStatus = .error(error.localizedDescription)
+                }
+            }
         }
         triggerHaptic(.light)
     }
@@ -222,23 +275,33 @@ final class ControlVM: ObservableObject {
 
     func updateChannelA(_ update: (inout ChannelState) -> Void) {
         update(&channelA)
+        normalizeEnabledDefaults(&channelA)
         applySafetyLimits(to: &channelA)
-        if isSynced { channelB.sync(from: channelA) }
+        if isSynced {
+            channelB.sync(from: channelA)
+            normalizeEnabledDefaults(&channelB)
+            applySafetyLimits(to: &channelB)
+        }
         persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
-            Task { try? await applyChannelCommand("A", state: channelA) }
+            Task { try? await applyCurrentSettings() }
         }
     }
 
     func updateChannelB(_ update: (inout ChannelState) -> Void) {
         update(&channelB)
+        normalizeEnabledDefaults(&channelB)
         applySafetyLimits(to: &channelB)
-        if isSynced { channelA.sync(from: channelB) }
+        if isSynced {
+            channelA.sync(from: channelB)
+            normalizeEnabledDefaults(&channelA)
+            applySafetyLimits(to: &channelA)
+        }
         persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
-            Task { try? await applyChannelCommand("B", state: channelB) }
+            Task { try? await applyCurrentSettings() }
         }
     }
 
@@ -300,7 +363,7 @@ final class ControlVM: ObservableObject {
         updateChannelA { ch in
             ch.strength = max(0, min(100, ch.strength + delta))
         }
-        if !isSynced {
+        if !isSynced && channelB.isEnabled {
             updateChannelB { ch in
                 ch.strength = max(0, min(100, ch.strength + delta))
             }
@@ -342,41 +405,79 @@ final class ControlVM: ObservableObject {
             connectionStatus = .connected
         case .http:
             connectionStatus = .connecting
-            await httpService.connect(url: settings.connectionConfig.httpServerURL)
+            try await httpService.connect(
+                url: settings.connectionConfig.httpServerURL,
+                apiKey: settings.connectionConfig.httpAPIKey
+            )
             connectionStatus = .connected
         }
     }
 
     private func applyCurrentSettings() async throws {
-        if channelA.isEnabled {
-            try await applyChannelCommand("A", state: channelA)
-        }
-        if channelB.isEnabled && !isSynced {
-            try await applyChannelCommand("B", state: channelB)
-        }
-    }
-
-    private func applyChannelCommand(_ channel: String, state: ChannelState) async throws {
         guard let settings = settingsVM else { return }
-        let strength = Int(min(state.strength, adaptiveStrengthLimit))
+        let policy = placementPolicy()
+        let outputA = policy.adapted(channelA, bpm: currentHeartRateBPM, adaptiveStrengthLimit: adaptiveStrengthLimit)
+        let outputB = policy.adapted(effectiveChannelBForOutput(), bpm: currentHeartRateBPM, adaptiveStrengthLimit: adaptiveStrengthLimit)
 
         switch settings.connectionConfig.mode {
         case .ble:
             try await bluetoothService.sendRealtimeControl(
-                channelA: channelA,
-                channelB: isSynced ? channelA : channelB,
-                adaptiveStrengthLimit: adaptiveStrengthLimit
+                channelA: outputA,
+                channelB: outputB,
+                adaptiveStrengthLimit: adaptiveStrengthLimit,
+                protocolVersion: settings.connectionConfig.bleProtocolVersion,
+                outputMode: settings.connectionConfig.bleOutputMode
             )
         case .http:
-            try await httpService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
+            if outputA.isEnabled || outputB.isEnabled {
+                try await httpService.sendChannelControl(commandID: settings.connectionConfig.httpCommandID)
+            } else {
+                try await httpService.emergencyStop(commandID: settings.connectionConfig.httpStopCommandID)
+            }
         }
+    }
+
+    private func effectiveChannelBForOutput() -> ChannelState {
+        var output = channelB
+        if isSynced {
+            output.sync(from: channelA)
+        }
+        return output
+    }
+
+    private func outputStrength(for channel: ChannelState) -> Int {
+        guard channel.isEnabled else { return 0 }
+        return Int(min(channel.strength, adaptiveStrengthLimit).rounded())
     }
 
     private func sendEmergencyStop() async throws {
         guard let settings = settingsVM else { return }
         switch settings.connectionConfig.mode {
-        case .ble: try await bluetoothService.emergencyStop()
-        case .http: try await httpService.emergencyStop()
+        case .ble: try await bluetoothService.emergencyStop(protocolVersion: settings.connectionConfig.bleProtocolVersion)
+        case .http: try await httpService.emergencyStop(commandID: settings.connectionConfig.httpStopCommandID)
+        }
+    }
+
+    private func sendZeroOutput() async throws {
+        guard let settings = settingsVM else { return }
+        var zeroA = channelA
+        var zeroB = isSynced ? channelA : channelB
+        zeroA.strength = 0
+        zeroA.isEnabled = false
+        zeroB.strength = 0
+        zeroB.isEnabled = false
+
+        switch settings.connectionConfig.mode {
+        case .ble:
+            try await bluetoothService.sendRealtimeControl(
+                channelA: zeroA,
+                channelB: zeroB,
+                adaptiveStrengthLimit: 100,
+                protocolVersion: settings.connectionConfig.bleProtocolVersion,
+                outputMode: settings.connectionConfig.bleOutputMode
+            )
+        case .http:
+            try await httpService.emergencyStop(commandID: settings.connectionConfig.httpStopCommandID)
         }
     }
 
@@ -389,9 +490,25 @@ final class ControlVM: ObservableObject {
 
         let chConfig = channel.id == .a ? settings.channelAConfig : settings.channelBConfig
         channel.strength = max(chConfig.minStrength, min(channel.strength, chConfig.maxStrength))
+        channel = placementPolicy().adapted(channel, bpm: nil, adaptiveStrengthLimit: adaptiveStrengthLimit)
 
         if channel.strength > config.confirmationThreshold && !showSafetyWarning {
             showSafetyWarning = true
+        }
+    }
+
+    private func normalizeEnabledDefaults(_ channel: inout ChannelState) {
+        guard channel.isEnabled, let settingsVM else { return }
+        let chConfig = channel.id == .a ? settingsVM.channelAConfig : settingsVM.channelBConfig
+        let profile = channel.padPairProfile
+        if channel.strength <= 0 {
+            channel.strength = min(max(chConfig.defaultStrength, chConfig.minStrength), chConfig.maxStrength, settingsVM.safetyConfig.maxStrength, adaptiveStrengthLimit, profile.maxStrength)
+        }
+        if channel.frequency < profile.minFrequency || channel.frequency > profile.maxFrequency {
+            channel.frequency = max(profile.minFrequency, min(chConfig.defaultFrequency, profile.maxFrequency))
+        }
+        if channel.pulseWidth <= 0 || channel.pulseWidth > profile.maxPulseWidth {
+            channel.pulseWidth = max(0, min(chConfig.defaultPulseWidth, profile.maxPulseWidth))
         }
     }
 
@@ -399,26 +516,39 @@ final class ControlVM: ObservableObject {
 
     private func startRampIfNeeded() {
         guard let settings = settingsVM else { return }
+        guard settings.connectionConfig.mode == .ble else { return }
         let rampRate = settings.safetyConfig.rampRateLimit
         guard rampRate > 0 else { return }
 
+        rampTimer?.invalidate()
         isRamping = true
         let targetA = channelA.strength
-        channelA.strength = 0
-        let targetB = isSynced ? targetA : channelB.strength
-        channelB.strength = 0
+        let targetB = channelB.strength
+        let shouldRampA = channelA.isEnabled
+        let shouldRampB = channelB.isEnabled
+        if shouldRampA {
+            channelA.strength = 0
+        }
+        if shouldRampB {
+            channelB.strength = 0
+        }
 
         rampTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
                 var done = true
-                if self.channelA.strength < targetA {
+                if shouldRampA && self.channelA.strength < targetA {
                     self.channelA.strength = min(self.channelA.strength + rampRate * 0.1, targetA)
                     done = false
                 }
-                if self.channelB.strength < targetB {
+                if shouldRampB && self.channelB.strength < targetB {
                     self.channelB.strength = min(self.channelB.strength + rampRate * 0.1, targetB)
                     done = false
+                }
+                do {
+                    try await self.applyCurrentSettings()
+                } catch {
+                    self.connectionStatus = .error(error.localizedDescription)
                 }
                 if done {
                     self.isRamping = false
@@ -430,10 +560,12 @@ final class ControlVM: ObservableObject {
 
     // MARK: - Session Timer
 
-    private func startSessionTimer() {
+    private func startSessionTimer(resetElapsed: Bool = false) {
         guard let settings = settingsVM else { return }
 
-        sessionElapsedMs = 0
+        if resetElapsed {
+            sessionElapsedMs = 0
+        }
         let timeoutMs = settings.safetyConfig.sessionTimeoutMinutes * 60 * 1000
 
         sessionTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -545,6 +677,20 @@ final class ControlVM: ObservableObject {
         handleHeartRateUpdate(reading, safetyPolicy: policy)
     }
 
+    private func handleWatchWorkoutStatus(_ status: String) {
+        watchWorkoutStatus = status
+        guard status != "running" else { return }
+        if let latestHeartRateReading {
+            self.latestHeartRateReading = HeartRateReading(
+                bpm: latestHeartRateReading.bpm,
+                sampleDate: Date().addingTimeInterval(-liveHeartRateMaxAge - 1)
+            )
+        }
+        if settingsVM?.edgeModeConfig.isEnabled == true {
+            edgeModeState = .armed
+        }
+    }
+
     private func applyEdgeModeIfNeeded(bpm: Double) {
         guard let settingsVM, settingsVM.edgeModeConfig.isEnabled else {
             edgeModeState = .inactive
@@ -555,31 +701,79 @@ final class ControlVM: ObservableObject {
         let state = policy.evaluate(bpm: bpm, currentStrength: currentMaxStrength)
         edgeModeState = isSessionActive && !isPaused ? state : .armed
 
-        guard isSessionActive, !isPaused, let targetStrength = state.targetStrength else { return }
+        guard isSessionActive, !isPaused else { return }
+        let edgeInterval = min(settingsVM.edgeModeConfig.cooldownSeconds, 2.5)
         if let lastEdgeAdjustmentAt,
-           Date().timeIntervalSince(lastEdgeAdjustmentAt) < settingsVM.edgeModeConfig.cooldownSeconds {
+           Date().timeIntervalSince(lastEdgeAdjustmentAt) < edgeInterval {
             return
         }
 
         lastEdgeAdjustmentAt = .now
-        let target = min(targetStrength, adaptiveStrengthLimit)
-        let delta = target - currentMaxStrength
+        var didUpdate = false
 
-        updateChannelA { channel in
-            channel.strength = max(0, min(100, channel.strength + delta))
+        if settingsVM.edgeModeConfig.adjustsStrength,
+           let targetStrength = state.targetStrength {
+            let target = min(targetStrength, adaptiveStrengthLimit)
+            let delta = target - currentMaxStrength
+            let smoothedDelta = delta * 0.45
+            applyEdgeStrengthDelta(smoothedDelta)
+            didUpdate = true
         }
 
-        if !isSynced {
-            updateChannelB { channel in
-                channel.strength = max(0, min(100, channel.strength + delta))
+        let profile = activePadProfile()
+
+        if settingsVM.edgeModeConfig.adjustsFrequency {
+            let frequency = policy.targetFrequency(bpm: bpm, placementProfile: profile)
+            applyEdgeSignal { channel in
+                channel.frequency += (frequency - channel.frequency) * 0.35
             }
+            didUpdate = true
+        }
+
+        if settingsVM.edgeModeConfig.adjustsWaveform,
+           let waveform = policy.targetWaveform(for: state, placementProfile: profile) {
+            applyEdgeSignal { channel in
+                channel.waveform = waveform
+            }
+            didUpdate = true
+        }
+
+        if didUpdate {
+            applySafetyLimits(to: &channelA)
+            applySafetyLimits(to: &channelB)
+            persistLastControlState()
+            updateWaveformPreview()
+            Task { try? await applyCurrentSettings() }
+        }
+    }
+
+    private func applyEdgeStrengthDelta(_ delta: Double) {
+        if channelA.isEnabled {
+            channelA.strength = max(0, min(100, channelA.strength + delta))
+        }
+        if channelB.isEnabled {
+            channelB.strength = max(0, min(100, channelB.strength + delta))
+        }
+    }
+
+    private func applyEdgeSignal(_ update: (inout ChannelState) -> Void) {
+        if channelA.isEnabled {
+            update(&channelA)
+        }
+        if channelB.isEnabled {
+            update(&channelB)
         }
     }
 
     private func applyAdaptiveHeartRateLimits() {
         guard let settingsVM else { return }
-        channelA.strength = min(channelA.strength, adaptiveStrengthLimit)
-        channelB.strength = min(channelB.strength, adaptiveStrengthLimit)
+        let policy = placementPolicy()
+        if channelA.isEnabled {
+            channelA = policy.adapted(channelA, bpm: currentHeartRateBPM, adaptiveStrengthLimit: adaptiveStrengthLimit)
+        }
+        if channelB.isEnabled {
+            channelB = policy.adapted(channelB, bpm: currentHeartRateBPM, adaptiveStrengthLimit: adaptiveStrengthLimit)
+        }
 
         if case .critical = heartRateSafetyState,
            settingsVM.heartRateSafetyConfig.emergencyStopOnCritical,
@@ -602,6 +796,19 @@ final class ControlVM: ObservableObject {
 
     private func isFresh(_ reading: HeartRateReading) -> Bool {
         Date().timeIntervalSince(reading.sampleDate) <= liveHeartRateMaxAge
+    }
+
+    private func placementPolicy() -> PlacementOutputPolicy {
+        PlacementOutputPolicy(heartRateConfig: settingsVM?.heartRateSafetyConfig ?? .default)
+    }
+
+    private func activePadProfile() -> PadPlacementProfile? {
+        let channels = [channelA, effectiveChannelBForOutput()].filter(\.isEnabled)
+        return channels
+            .map(\.padPairProfile)
+            .max { lhs, rhs in
+                lhs.sensitivity < rhs.sensitivity
+            }
     }
 
     private func advanceProgramStep(_ program: Program) {

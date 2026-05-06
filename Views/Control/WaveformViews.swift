@@ -53,22 +53,135 @@ struct WaveformMiniPreview: View {
 
     var body: some View {
         GeometryReader { geometry in
-            Path { path in
-                guard !points.isEmpty else { return }
-                let width = geometry.size.width
-                let height = geometry.size.height
-                let midY = height / 2
-                for (index, value) in points.enumerated() {
-                    let x = (Double(index) / Double(points.count - 1)) * width
-                    let y = midY - (value * midY * 0.8)
-                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                    else { path.addLine(to: CGPoint(x: x, y: y)) }
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.secondary.opacity(0.08))
+
+                Path { path in
+                    let midY = geometry.size.height / 2
+                    path.move(to: CGPoint(x: 0, y: midY))
+                    path.addLine(to: CGPoint(x: geometry.size.width, y: midY))
                 }
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+
+                Path { path in
+                    guard points.count > 1 else { return }
+                    let width = geometry.size.width
+                    let height = geometry.size.height
+                    let midY = height / 2
+                    for (index, value) in points.enumerated() {
+                        let x = (Double(index) / Double(points.count - 1)) * width
+                        let y = midY - (value * midY * 0.78)
+                        if index == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                        else { path.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                }
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             }
-            .stroke(Color.accentColor, lineWidth: 1.5)
         }
         .task(id: "\(waveform.id)-\(frequency)") {
             points = await engine.generate(waveform, samples: 80, frequency: frequency)
+        }
+    }
+}
+
+struct WaveformGraphView: View {
+    let waveform: WaveformType
+    let frequency: Double
+    let strength: Double
+    let phaseOffset: Double
+    let color: Color
+    @State private var points: [Double] = []
+    @State private var engine = WaveformEngine()
+
+    private var refreshID: String {
+        "\(waveform.id)-\(frequency)-\(strength)-\(phaseOffset)"
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(.secondarySystemGroupedBackground))
+
+                ForEach(0..<5, id: \.self) { index in
+                    Path { path in
+                        let y = geometry.size.height * Double(index + 1) / 6
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: geometry.size.width, y: y))
+                    }
+                    .stroke(Color.secondary.opacity(0.14), lineWidth: 0.5)
+                }
+
+                ForEach(0..<4, id: \.self) { index in
+                    Path { path in
+                        let x = geometry.size.width * Double(index + 1) / 5
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: geometry.size.height))
+                    }
+                    .stroke(Color.secondary.opacity(0.1), lineWidth: 0.5)
+                }
+
+                Path { path in
+                    let midY = geometry.size.height / 2
+                    path.move(to: CGPoint(x: 0, y: midY))
+                    path.addLine(to: CGPoint(x: geometry.size.width, y: midY))
+                }
+                .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 5]))
+
+                Path { path in
+                    let trace = tracePoints(in: geometry.size)
+                    guard let first = trace.first else { return }
+                    path.move(to: first)
+                    for point in trace.dropFirst() {
+                        path.addLine(to: point)
+                    }
+                    path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height / 2))
+                    path.addLine(to: CGPoint(x: 0, y: geometry.size.height / 2))
+                    path.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [color.opacity(0.26), color.opacity(0.04)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                Path { path in
+                    let trace = tracePoints(in: geometry.size)
+                    guard let first = trace.first else { return }
+                    path.move(to: first)
+                    for point in trace.dropFirst() {
+                        path.addLine(to: point)
+                    }
+                }
+                .stroke(
+                    LinearGradient(
+                        colors: [color.opacity(0.75), color, .accentColor],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round)
+                )
+                .shadow(color: color.opacity(0.2), radius: 4, y: 2)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .task(id: refreshID) {
+            points = await engine.generate(waveform, samples: 180, frequency: frequency)
+        }
+    }
+
+    private func tracePoints(in size: CGSize) -> [CGPoint] {
+        guard points.count > 1 else { return [] }
+        let amplitude = max(0.08, min(1, strength / 100)) * size.height * 0.42
+        let phaseShift = Int((phaseOffset / 360) * Double(points.count))
+        return points.indices.map { index in
+            let shiftedIndex = (index + phaseShift) % points.count
+            let x = Double(index) / Double(points.count - 1) * size.width
+            let y = size.height / 2 - points[shiftedIndex] * amplitude
+            return CGPoint(x: x, y: y)
         }
     }
 }
@@ -216,10 +329,15 @@ struct WaveformEditorView: View {
 struct ChannelDetailView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var controlVM: ControlVM
-    let channel: ChannelState
     let isA: Bool
 
-    private var ch: ChannelState { channel }
+    private var ch: ChannelState {
+        isA ? controlVM.channelA : controlVM.channelB
+    }
+
+    private var channelColor: Color {
+        isA ? .blue : .purple
+    }
 
     var body: some View {
         NavigationStack {
@@ -228,24 +346,66 @@ struct ChannelDetailView: View {
                     detailCard("Strength") {
                         Text("\(Int(ch.strength))%")
                             .font(.system(size: 56, weight: .bold, design: .rounded))
-                            .foregroundColor(isA ? .blue : .purple)
+                            .foregroundColor(channelColor)
                         Slider(value: binding(\.strength), in: 0...100)
-                            .tint(isA ? .blue : .purple)
+                            .tint(channelColor)
+                    }
+
+                    detailCard("Pad Placement") {
+                        placementRow("Pad 1", placement: binding(\.pad1Placement))
+                        placementRow("Pad 2", placement: binding(\.pad2Placement))
+
+                        Label(placementSummary, systemImage: ch.placement.icon)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
 
                     detailCard("Waveform") {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72))], spacing: 10) {
-                            ForEach(WaveformType.allBuiltIn) { wf in
-                                Button {
-                                    update { $0.waveform = wf }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: wf.icon).font(.title2)
-                                        Text(wf.name).font(.caption2).lineLimit(1)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Label(ch.waveform.name, systemImage: ch.waveform.icon)
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text("\(Int(ch.frequency))Hz")
+                                    .font(.caption.monospacedDigit().weight(.semibold))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            WaveformGraphView(
+                                waveform: ch.waveform,
+                                frequency: ch.frequency,
+                                strength: ch.strength,
+                                phaseOffset: ch.phaseOffset,
+                                color: channelColor
+                            )
+                            .frame(height: 150)
+
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 116), spacing: 10)], spacing: 10) {
+                                ForEach(WaveformType.allBuiltIn) { wf in
+                                    Button {
+                                        update { $0.waveform = wf }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: wf.icon)
+                                                    .font(.caption.weight(.semibold))
+                                                Text(wf.name)
+                                                    .font(.caption.weight(.semibold))
+                                                    .lineLimit(1)
+                                                    .minimumScaleFactor(0.75)
+                                                Spacer(minLength: 0)
+                                            }
+
+                                            WaveformMiniPreview(waveform: wf, frequency: ch.frequency)
+                                                .frame(height: 34)
+                                        }
+                                        .foregroundColor(ch.waveform.id == wf.id ? channelColor : .primary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(10)
+                                        .background(ch.waveform.id == wf.id ? channelColor.opacity(0.18) : Color.secondary.opacity(0.08))
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
                                     }
-                                    .frame(maxWidth: .infinity).padding(.vertical, 8)
-                                    .background(ch.waveform.id == wf.id ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.1))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -255,7 +415,7 @@ struct ChannelDetailView: View {
                     sliderCard("Pulse Width", Binding(
                         get: { Double(ch.pulseWidth) },
                         set: { newValue in update { channel in channel.pulseWidth = Int(newValue) } }
-                    ), unit: "μs", range: 50...1000, color: .pink)
+                    ), unit: "μs", range: 0...100, color: .pink)
                     sliderCard("Phase Offset", binding(\.phaseOffset), unit: "°", range: 0...360, color: .teal)
 
                     detailCard("Duration") {
@@ -299,6 +459,11 @@ struct ChannelDetailView: View {
         else { controlVM.updateChannelB(block) }
     }
 
+    private var placementSummary: String {
+        let profile = ch.padPairProfile
+        return "Cap \(Int(profile.maxStrength))% · \(Int(profile.minFrequency))-\(Int(profile.maxFrequency)) Hz · \(profile.maxPulseWidth) us"
+    }
+
     private func detailCard(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.headline).foregroundColor(.secondary)
@@ -315,5 +480,29 @@ struct ChannelDetailView: View {
                     .foregroundColor(.secondary).frame(width: 50).monospacedDigit()
             }
         }
+    }
+
+    private func placementRow(_ title: String, placement: Binding<PadPlacement>) -> some View {
+        Menu {
+            ForEach(PadPlacement.allCases) { option in
+                Button {
+                    placement.wrappedValue = option
+                } label: {
+                    Label(option.rawValue, systemImage: option.icon)
+                }
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 12)
+                Label(placement.wrappedValue.rawValue, systemImage: placement.wrappedValue.icon)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
     }
 }
