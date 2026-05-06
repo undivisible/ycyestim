@@ -26,6 +26,16 @@ struct Program: Identifiable, Codable, Equatable {
             var pulseWidth: Int
             var durationMs: Int
         }
+
+        init(id: UUID = UUID(),
+             timeOffset: Int,
+             channelA: ChannelSettings,
+             channelB: ChannelSettings? = nil) {
+            self.id = id
+            self.timeOffset = timeOffset
+            self.channelA = channelA
+            self.channelB = channelB
+        }
     }
 
     var totalDurationMs: Int {

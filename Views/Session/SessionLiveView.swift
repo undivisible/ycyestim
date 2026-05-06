@@ -115,6 +115,18 @@ struct SessionLiveView: View {
 
             Spacer()
 
+            if settingsVM.edgeModeConfig.isEnabled {
+                Label(controlVM.edgeModeState.label, systemImage: controlVM.edgeModeState.icon)
+                    .font(.caption)
+                    .foregroundColor(heartRateColor)
+            } else if settingsVM.heartRateSafetyConfig.isEnabled {
+                Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
+                    .font(.caption)
+                    .foregroundColor(heartRateColor)
+            }
+
+            Spacer()
+
             // Connection mode
             Image(systemName: settingsVM.connectionConfig.mode.icon)
                 .font(.subheadline)
@@ -124,6 +136,21 @@ struct SessionLiveView: View {
         .padding(.horizontal, 16)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var heartRateColor: Color {
+        switch controlVM.heartRateSafetyState {
+        case .critical:
+            return .red
+        case .high:
+            return .orange
+        case .elevated:
+            return .yellow
+        case .monitoring:
+            return .green
+        case .inactive, .unavailable, .needsAuthorization, .stale:
+            return .secondary
+        }
     }
 
     // MARK: - Channel Live Meter
@@ -364,7 +391,7 @@ struct LiveWaveformView: View {
             )
         }
         .task {
-            let generated = await engine.generate(waveform, samples: 300, frequency: frequency)
+            let generated = await engine.generate(waveform, samples: 160, frequency: frequency)
             points = generated
         }
         .onAppear {
@@ -374,7 +401,7 @@ struct LiveWaveformView: View {
         }
         .onChange(of: waveform) {
             Task {
-                let generated = await engine.generate(waveform, samples: 300, frequency: frequency)
+                let generated = await engine.generate(waveform, samples: 160, frequency: frequency)
                 points = generated
             }
         }

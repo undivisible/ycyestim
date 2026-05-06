@@ -10,6 +10,15 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
     case rampUp
     case rampDown
     case sawtooth
+    case heartbeat
+    case staircase
+    case alternating
+    case sweep
+    case tremolo
+    case breath
+    case glide
+    case flutter
+    case crescendo
     case random
     case custom(name: String, points: [Double])
 
@@ -27,6 +36,15 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .rampUp: return "Ramp Up"
         case .rampDown: return "Ramp Down"
         case .sawtooth: return "Sawtooth"
+        case .heartbeat: return "Heartbeat"
+        case .staircase: return "Staircase"
+        case .alternating: return "Alternating"
+        case .sweep: return "Sweep"
+        case .tremolo: return "Tremolo"
+        case .breath: return "Breath"
+        case .glide: return "Glide"
+        case .flutter: return "Flutter"
+        case .crescendo: return "Crescendo"
         case .random: return "Random"
         case .custom(let name, _): return name
         }
@@ -41,6 +59,15 @@ enum WaveformType: Codable, Equatable, Hashable, Identifiable {
         case .rampUp: return "arrow.up.right"
         case .rampDown: return "arrow.down.right"
         case .sawtooth: return "chart.xyaxis.line"
+        case .heartbeat: return "heart.fill"
+        case .staircase: return "chart.bar.fill"
+        case .alternating: return "arrow.left.arrow.right"
+        case .sweep: return "waveform.path.ecg"
+        case .tremolo: return "waveform"
+        case .breath: return "wind"
+        case .glide: return "water.waves"
+        case .flutter: return "sparkles"
+        case .crescendo: return "chart.line.uptrend.xyaxis"
         case .random: return "sparkle"
         case .custom: return "pencil"
         }
@@ -77,6 +104,15 @@ extension WaveformType {
         .rampUp,
         .rampDown,
         .sawtooth,
+        .heartbeat,
+        .staircase,
+        .alternating,
+        .sweep,
+        .tremolo,
+        .breath,
+        .glide,
+        .flutter,
+        .crescendo,
         .random
     ]
 }
@@ -108,6 +144,24 @@ actor WaveformEngine {
             points = Array(stride(from: 1.0, through: -1.0, by: -2.0 / Double(samples - 1)))
         case .sawtooth:
             points = generateSawtooth(samples: samples, frequency: frequency)
+        case .heartbeat:
+            points = generateHeartbeat(samples: samples)
+        case .staircase:
+            points = generateStaircase(samples: samples)
+        case .alternating:
+            points = generateAlternating(samples: samples)
+        case .sweep:
+            points = generateSweep(samples: samples, frequency: frequency)
+        case .tremolo:
+            points = generateTremolo(samples: samples, frequency: frequency)
+        case .breath:
+            points = generateBreath(samples: samples)
+        case .glide:
+            points = generateGlide(samples: samples, frequency: frequency)
+        case .flutter:
+            points = generateFlutter(samples: samples, frequency: frequency)
+        case .crescendo:
+            points = generateCrescendo(samples: samples, frequency: frequency)
         case .random:
             points = (0..<samples).map { _ in Double.random(in: -1...1) }
         case .custom(_, let pts):
@@ -158,6 +212,84 @@ actor WaveformEngine {
         return (0..<samples).map { i in
             let t = Double(i).truncatingRemainder(dividingBy: period) / period
             return 2 * t - 1
+        }
+    }
+
+    private func generateHeartbeat(samples: Int) -> [Double] {
+        (0..<samples).map { i in
+            let phase = Double(i) / Double(max(1, samples - 1))
+            let first = exp(-pow((phase - 0.22) / 0.035, 2))
+            let second = 0.55 * exp(-pow((phase - 0.34) / 0.055, 2))
+            let recovery = -0.2 * exp(-pow((phase - 0.5) / 0.09, 2))
+            return max(-1, min(1, first + second + recovery))
+        }
+    }
+
+    private func generateStaircase(samples: Int) -> [Double] {
+        let steps = 6
+        return (0..<samples).map { i in
+            let index = min(steps - 1, i * steps / max(1, samples))
+            return -1 + (Double(index) / Double(steps - 1)) * 2
+        }
+    }
+
+    private func generateAlternating(samples: Int) -> [Double] {
+        let segment = max(1, samples / 12)
+        return (0..<samples).map { i in
+            (i / segment).isMultiple(of: 2) ? 1 : -1
+        }
+    }
+
+    private func generateSweep(samples: Int, frequency: Double) -> [Double] {
+        let base = max(0.5, frequency / 20)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let accelerated = t * t * (base * 12)
+            return sin(2 * .pi * accelerated)
+        }
+    }
+
+    private func generateTremolo(samples: Int, frequency: Double) -> [Double] {
+        let carrier = max(1, frequency)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let amplitude = 0.35 + 0.65 * abs(sin(2 * .pi * t * 3))
+            return amplitude * sin(2 * .pi * t * carrier)
+        }
+    }
+
+    private func generateBreath(samples: Int) -> [Double] {
+        (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let envelope = pow(sin(.pi * t), 1.8)
+            return envelope * sin(2 * .pi * t * 2)
+        }
+    }
+
+    private func generateGlide(samples: Int, frequency: Double) -> [Double] {
+        let cycles = max(1, frequency / 8)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let drift = 0.18 * sin(2 * .pi * t)
+            return sin(2 * .pi * (cycles * t + drift))
+        }
+    }
+
+    private func generateFlutter(samples: Int, frequency: Double) -> [Double] {
+        let carrier = max(3, frequency / 2)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let gate = sin(2 * .pi * t * 9) > 0.15 ? 1.0 : 0.2
+            return gate * sin(2 * .pi * t * carrier)
+        }
+    }
+
+    private func generateCrescendo(samples: Int, frequency: Double) -> [Double] {
+        let cycles = max(1, frequency / 10)
+        return (0..<samples).map { i in
+            let t = Double(i) / Double(max(1, samples - 1))
+            let envelope = min(1, 0.15 + t * 0.95)
+            return envelope * sin(2 * .pi * t * cycles)
         }
     }
 

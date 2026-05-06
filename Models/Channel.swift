@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Channel State
 
-struct ChannelState: Identifiable, Equatable {
+struct ChannelState: Identifiable, Codable, Equatable {
     let id: ChannelID
     var isEnabled: Bool
     var strength: Double        // 0–100
@@ -47,6 +47,7 @@ struct ChannelState: Identifiable, Equatable {
         self.waveform = other.waveform
         self.frequency = other.frequency
         self.pulseWidth = other.pulseWidth
+        self.phaseOffset = other.phaseOffset
         self.isInverted = other.isInverted
     }
 }

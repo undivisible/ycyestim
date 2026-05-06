@@ -4,7 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var settingsVM: SettingsVM
-    @StateObject private var deviceVM = DeviceVM()
+    @EnvironmentObject var controlVM: ControlVM
 
     var body: some View {
         NavigationStack {
@@ -61,11 +61,6 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-
-                    if settingsVM.connectionConfig.mode == .im {
-                        TextField("Connect Code (UID TOKEN)", text: $settingsVM.connectionConfig.imConnectCode)
-                        Toggle("Auto Reconnect", isOn: $settingsVM.connectionConfig.imAutoReconnect)
-                    }
 
                     if settingsVM.connectionConfig.mode == .ble {
                         Toggle("Auto Connect Last Device", isOn: $settingsVM.connectionConfig.bleAutoConnect)
@@ -137,6 +132,91 @@ struct SettingsView: View {
                     Label("Safety", systemImage: "shield.fill")
                 }
                 .foregroundColor(.red)
+
+                Section {
+                    Toggle("Adaptive Heart Rate Safety", isOn: $settingsVM.heartRateSafetyConfig.isEnabled)
+                    Toggle("Edge Mode", isOn: $settingsVM.edgeModeConfig.isEnabled)
+
+                    HStack {
+                        Label(controlVM.heartRateSafetyState.label, systemImage: "heart.fill")
+                        Spacer()
+                        Text(heartRateAuthorizationLabel)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Button("Check") {
+                            Task { await controlVM.requestHeartRateAuthorization() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if let error = controlVM.heartRateAuthorizationError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    LabeledContent("Baseline") {
+                        Stepper("\(Int(settingsVM.heartRateSafetyConfig.baselineBPM)) BPM",
+                                value: $settingsVM.heartRateSafetyConfig.baselineBPM,
+                                in: 45...120,
+                                step: 1)
+                    }
+
+                    LabeledContent("Elevated") {
+                        Stepper("\(Int(settingsVM.heartRateSafetyConfig.elevatedBPM)) BPM",
+                                value: $settingsVM.heartRateSafetyConfig.elevatedBPM,
+                                in: 80...180,
+                                step: 1)
+                    }
+
+                    LabeledContent("High") {
+                        Stepper("\(Int(settingsVM.heartRateSafetyConfig.highBPM)) BPM",
+                                value: $settingsVM.heartRateSafetyConfig.highBPM,
+                                in: 90...200,
+                                step: 1)
+                    }
+
+                    LabeledContent("Critical") {
+                        Stepper("\(Int(settingsVM.heartRateSafetyConfig.criticalBPM)) BPM",
+                                value: $settingsVM.heartRateSafetyConfig.criticalBPM,
+                                in: 100...220,
+                                step: 1)
+                    }
+
+                    LabeledContent("Elevated Cap") {
+                        Slider(value: $settingsVM.heartRateSafetyConfig.elevatedStrengthMultiplier, in: 0.25...1, step: 0.05)
+                    }
+
+                    LabeledContent("High Cap") {
+                        Slider(value: $settingsVM.heartRateSafetyConfig.highStrengthMultiplier, in: 0.1...0.75, step: 0.05)
+                    }
+
+                    Toggle("Emergency Stop at Critical", isOn: $settingsVM.heartRateSafetyConfig.emergencyStopOnCritical)
+
+                    LabeledContent("Edge Target") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.targetBPM)) BPM",
+                                value: $settingsVM.edgeModeConfig.targetBPM,
+                                in: 80...180,
+                                step: 1)
+                    }
+
+                    LabeledContent("Edge Peak") {
+                        Stepper("\(Int(settingsVM.edgeModeConfig.peakBPM)) BPM",
+                                value: $settingsVM.edgeModeConfig.peakBPM,
+                                in: 90...205,
+                                step: 1)
+                    }
+
+                    LabeledContent("Edge Ceiling") {
+                        Slider(value: $settingsVM.edgeModeConfig.maxStrength, in: settingsVM.edgeModeConfig.minStrength...80, step: 1)
+                    }
+
+                    LabeledContent("Edge Step") {
+                        Slider(value: $settingsVM.edgeModeConfig.rampStep, in: 0.5...6, step: 0.5)
+                    }
+                } header: {
+                    Label("Biometrics", systemImage: "heart.text.square.fill")
+                }
 
                 // MARK: - Program Settings
                 Section {
@@ -252,9 +332,24 @@ struct SettingsView: View {
             .onChange(of: settingsVM.connectionConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.appearanceConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.notificationConfig) { settingsVM.saveAll() }
+            .onChange(of: settingsVM.heartRateSafetyConfig) { settingsVM.saveAll() }
+            .onChange(of: settingsVM.edgeModeConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.channelAConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.channelBConfig) { settingsVM.saveAll() }
             .onChange(of: settingsVM.programConfig) { settingsVM.saveAll() }
+        }
+    }
+
+    private var heartRateAuthorizationLabel: String {
+        switch controlVM.heartRateAuthorizationStatus {
+        case .unavailable:
+            return "Unavailable"
+        case .unknown:
+            return "Unknown"
+        case .shouldRequest:
+            return "Needs Request"
+        case .unnecessary:
+            return "Already Checked"
         }
     }
 }

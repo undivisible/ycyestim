@@ -8,6 +8,8 @@ final class SettingsVM: ObservableObject {
     @Published var connectionConfig: ConnectionConfig
     @Published var appearanceConfig: AppearanceConfig
     @Published var notificationConfig: NotificationConfig
+    @Published var heartRateSafetyConfig: HeartRateSafetyConfig
+    @Published var edgeModeConfig: EdgeModeConfig
     @Published var channelAConfig: ChannelConfig
     @Published var channelBConfig: ChannelConfig
     @Published var programConfig: ProgramConfig
@@ -30,6 +32,8 @@ final class SettingsVM: ObservableObject {
     private let connectionKey = "ycy.connection"
     private let appearanceKey = "ycy.appearance"
     private let notificationsKey = "ycy.notifications"
+    private let heartRateSafetyKey = "ycy.heartRateSafety"
+    private let edgeModeKey = "ycy.edgeMode"
     private let channelAKey = "ycy.channelA"
     private let channelBKey = "ycy.channelB"
     private let programKey = "ycy.program"
@@ -39,6 +43,8 @@ final class SettingsVM: ObservableObject {
         connectionConfig = Self.load(connectionKey) ?? .default
         appearanceConfig = Self.load(appearanceKey) ?? .default
         notificationConfig = Self.load(notificationsKey) ?? .default
+        heartRateSafetyConfig = Self.load(heartRateSafetyKey) ?? .default
+        edgeModeConfig = Self.load(edgeModeKey) ?? .default
         channelAConfig = Self.load(channelAKey) ?? .standard
         channelBConfig = Self.load(channelBKey) ?? .standard
         programConfig = Self.load(programKey) ?? .default
@@ -49,6 +55,8 @@ final class SettingsVM: ObservableObject {
         Self.save(connectionConfig, connectionKey)
         Self.save(appearanceConfig, appearanceKey)
         Self.save(notificationConfig, notificationsKey)
+        Self.save(heartRateSafetyConfig, heartRateSafetyKey)
+        Self.save(edgeModeConfig, edgeModeKey)
         Self.save(channelAConfig, channelAKey)
         Self.save(channelBConfig, channelBKey)
         Self.save(programConfig, programKey)
@@ -59,6 +67,8 @@ final class SettingsVM: ObservableObject {
         connectionConfig = .default
         appearanceConfig = .default
         notificationConfig = .default
+        heartRateSafetyConfig = .default
+        edgeModeConfig = .default
         channelAConfig = .standard
         channelBConfig = .standard
         programConfig = .default

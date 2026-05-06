@@ -107,5 +107,111 @@ extension Preset {
         isBuiltin: true
     )
 
-    static let allBuiltins: [Preset] = [warmup, training, play, edge, tease, deep, intensity, relaxation]
+    static let heartbeat = Preset(
+        name: "Heartbeat",
+        icon: "heart.fill",
+        color: "#FF375F",
+        channelA: .init(strength: 18, waveform: .heartbeat, frequency: 12, pulseWidth: 180, phaseOffset: 0, durationMs: 120_000),
+        isBuiltin: true
+    )
+
+    static let staircase = Preset(
+        name: "Staircase",
+        icon: "chart.bar.fill",
+        color: "#0A84FF",
+        channelA: .init(strength: 28, waveform: .staircase, frequency: 18, pulseWidth: 220, phaseOffset: 0, durationMs: 90_000),
+        channelB: .init(strength: 24, waveform: .rampDown, frequency: 18, pulseWidth: 220, phaseOffset: 180, durationMs: 90_000),
+        isBuiltin: true
+    )
+
+    static let alternate = Preset(
+        name: "Alternate",
+        icon: "arrow.left.arrow.right",
+        color: "#64D2FF",
+        channelA: .init(strength: 34, waveform: .alternating, frequency: 22, pulseWidth: 180, phaseOffset: 0, durationMs: 0),
+        channelB: .init(strength: 34, waveform: .alternating, frequency: 22, pulseWidth: 180, phaseOffset: 180, durationMs: 0),
+        isBuiltin: true
+    )
+
+    static let sweep = Preset(
+        name: "Sweep",
+        icon: "waveform.path.ecg",
+        color: "#FFD60A",
+        channelA: .init(strength: 38, waveform: .sweep, frequency: 18, pulseWidth: 240, phaseOffset: 0, durationMs: 180_000),
+        isBuiltin: true
+    )
+
+    static let tremolo = Preset(
+        name: "Tremolo",
+        icon: "waveform",
+        color: "#5E5CE6",
+        channelA: .init(strength: 32, waveform: .tremolo, frequency: 24, pulseWidth: 200, phaseOffset: 0, durationMs: 0),
+        channelB: .init(strength: 26, waveform: .sine, frequency: 8, pulseWidth: 300, phaseOffset: 90, durationMs: 0),
+        isBuiltin: true
+    )
+
+    static let breath = Preset(
+        name: "Breath",
+        icon: "wind",
+        color: "#34C759",
+        channelA: .init(strength: 16, waveform: .breath, frequency: 8, pulseWidth: 260, phaseOffset: 0, durationMs: 180_000),
+        isBuiltin: true
+    )
+
+    static let glide = Preset(
+        name: "Glide",
+        icon: "water.waves",
+        color: "#0A84FF",
+        channelA: .init(strength: 24, waveform: .glide, frequency: 16, pulseWidth: 210, phaseOffset: 0, durationMs: 0),
+        channelB: .init(strength: 22, waveform: .breath, frequency: 10, pulseWidth: 260, phaseOffset: 120, durationMs: 0),
+        isBuiltin: true
+    )
+
+    static let flutter = Preset(
+        name: "Flutter",
+        icon: "sparkles",
+        color: "#FFCC00",
+        channelA: .init(strength: 26, waveform: .flutter, frequency: 28, pulseWidth: 160, phaseOffset: 0, durationMs: 90_000),
+        channelB: .init(strength: 24, waveform: .flutter, frequency: 24, pulseWidth: 160, phaseOffset: 180, durationMs: 90_000),
+        isBuiltin: true
+    )
+
+    static let crescendo = Preset(
+        name: "Crescendo",
+        icon: "chart.line.uptrend.xyaxis",
+        color: "#FF453A",
+        channelA: .init(strength: 30, waveform: .crescendo, frequency: 18, pulseWidth: 240, phaseOffset: 0, durationMs: 120_000),
+        channelB: .init(strength: 28, waveform: .rampDown, frequency: 12, pulseWidth: 260, phaseOffset: 180, durationMs: 120_000),
+        isBuiltin: true
+    )
+
+    static let edgeSense = Preset(
+        name: "Edge Sense",
+        icon: "heart.circle.fill",
+        color: "#FF375F",
+        channelA: .init(strength: 22, waveform: .heartbeat, frequency: 14, pulseWidth: 190, phaseOffset: 0, durationMs: 0),
+        channelB: .init(strength: 18, waveform: .glide, frequency: 12, pulseWidth: 230, phaseOffset: 90, durationMs: 0),
+        isBuiltin: true
+    )
+
+    static let allBuiltins: [Preset] = [
+        edgeSense,
+        breath,
+        glide,
+        flutter,
+        crescendo,
+        warmup,
+        training,
+        play,
+        edge,
+        tease,
+        deep,
+        intensity,
+        relaxation,
+        heartbeat,
+        staircase,
+        alternate,
+        sweep,
+        tremolo
+    ]
 }

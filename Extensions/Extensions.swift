@@ -34,23 +34,10 @@ extension Date {
     static var now: Date { Date() }
 }
 
-// MARK: - View: Glass Background Effect (iOS 26+ forward compatibility)
-
 extension View {
-    /// Apply glass background effect with fallback for older iOS versions
-    func glassBackgroundEffectCompat(displayStyle: GlassDisplayStyle = .automatic) -> some View {
-        if #available(iOS 26.0, *) {
-            return AnyView(self.glassBackgroundEffect(displayStyle: displayStyle))
-        } else {
-            return AnyView(self.background(.ultraThinMaterial))
-        }
+    func glassBackgroundEffectCompat() -> some View {
+        background(.ultraThinMaterial)
     }
-}
-
-enum GlassDisplayStyle {
-    case automatic
-    case prominent
-    case secondary
 }
 
 // MARK: - Double Extensions

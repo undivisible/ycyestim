@@ -23,6 +23,11 @@ final class ControlVM: ObservableObject {
     @Published var waveformPoints: [Double] = []
     @Published var connectionStatus: ConnectionStatus = .disconnected
     @Published var isRamping: Bool = false
+    @Published var heartRateSafetyState: HeartRateSafetyState = .inactive
+    @Published var edgeModeState: EdgeModeState = .inactive
+    @Published var latestHeartRateReading: HeartRateReading?
+    @Published var heartRateAuthorizationStatus: HeartRateAuthorizationStatus = .unknown
+    @Published var heartRateAuthorizationError: String?
 
     enum ConnectionStatus {
         case disconnected, connecting, connected, error(String)
@@ -30,21 +35,44 @@ final class ControlVM: ObservableObject {
 
     // MARK: - Services
 
-    private let imService = IMService()
-    private let bluetoothService = BluetoothService()
+    private let bluetoothService = BluetoothService.shared
     private let httpService = HTTPService()
+    private let heartRateService = HealthKitHeartRateService()
+    private var watchHeartRateReceiver: WatchHeartRateReceiver?
     private let waveformEngine = WaveformEngine()
     let presetStore = PresetStore()
 
     private var sessionTimer: Timer?
     private var rampTimer: Timer?
+    private var waveformPreviewTask: Task<Void, Never>?
+    private var appliedIntensityBoost: Double = 0
+    private var lastEdgeAdjustmentAt: Date?
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
+    private let liveHeartRateMaxAge: TimeInterval = 30
+    private let lastControlStateKey = "ycy.lastControlState"
 
     // Retained haptic generators (prevent missed haptics)
     private let lightGen = UIImpactFeedbackGenerator(style: .light)
     private let mediumGen = UIImpactFeedbackGenerator(style: .medium)
     private let heavyGen = UIImpactFeedbackGenerator(style: .heavy)
+
+    init() {
+        restoreLastControlState()
+        watchHeartRateReceiver = WatchHeartRateReceiver { [weak self] reading in
+            self?.handleWatchHeartRate(reading)
+        }
+        watchHeartRateReceiver?.start()
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            sessionTimer?.invalidate()
+            rampTimer?.invalidate()
+            waveformPreviewTask?.cancel()
+            heartRateService.stopMonitoring()
+        }
+    }
 
     // MARK: - Computed
 
@@ -62,6 +90,35 @@ final class ControlVM: ObservableObject {
         max(channelA.strength, channelB.strength)
     }
 
+    var adaptiveStrengthLimit: Double {
+        guard let settingsVM else { return 100 }
+        return settingsVM.safetyConfig.maxStrength * heartRateSafetyState.strengthMultiplier
+    }
+
+    var currentHeartRateBPM: Double? {
+        isHeartRateLive ? latestHeartRateReading?.bpm : nil
+    }
+
+    var heartRateDisplayBPM: Double? {
+        latestHeartRateReading?.bpm
+    }
+
+    var isHeartRateLive: Bool {
+        guard let latestHeartRateReading else { return false }
+        return isFresh(latestHeartRateReading)
+    }
+
+    var heartRateSourceLabel: String {
+        guard let latestHeartRateReading else { return "No live HR" }
+        if isFresh(latestHeartRateReading) { return "Live HR" }
+
+        let ageSeconds = max(0, Int(Date().timeIntervalSince(latestHeartRateReading.sampleDate)))
+        if ageSeconds < 60 {
+            return "Stale \(ageSeconds)s"
+        }
+        return "Stale \(ageSeconds / 60)m"
+    }
+
     // MARK: - Session Control
 
     func startSession() {
@@ -71,6 +128,7 @@ final class ControlVM: ObservableObject {
         sessionStartTime = .now
         isPaused = false
         intensityBoost = 0
+        appliedIntensityBoost = 0
         currentProgramStep = 0
 
         Task {
@@ -78,6 +136,7 @@ final class ControlVM: ObservableObject {
                 try await connectIfNeeded()
                 sessionState = .active(elapsedMs: 0, currentStep: 0)
                 startSessionTimer()
+                startHeartRateSafetyIfNeeded()
                 startRampIfNeeded()
                 try await applyCurrentSettings()
                 triggerHaptic(.medium)
@@ -90,14 +149,16 @@ final class ControlVM: ObservableObject {
 
     func stopSession() {
         sessionState = .stopping
-        let finalElapsed = sessionElapsedMs // capture BEFORE invalidating
+        let finalElapsed = sessionElapsedMs
         let finalMaxStrength = currentMaxStrength
         let finalPreset = activePreset
-        let mode = settingsVM?.connectionConfig.mode ?? .im
+        let mode = settingsVM?.connectionConfig.mode ?? .ble
         let startTime = sessionStartTime
 
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
+        stopHeartRateSafety()
+        edgeModeState = .inactive
 
         Task {
             try? await sendEmergencyStop()
@@ -107,8 +168,8 @@ final class ControlVM: ObservableObject {
                 startTime: startTime,
                 endTime: .now,
                 durationMs: finalElapsed,
-                maxStrengthReached: finalMaxStrength,
                 presetsUsed: finalPreset.map { [$0.name] } ?? [],
+                maxStrengthReached: finalMaxStrength,
                 mode: mode
             )
             presetStore.saveSession(record)
@@ -119,6 +180,7 @@ final class ControlVM: ObservableObject {
             activeProgram = nil
             currentProgramStep = 0
             intensityBoost = 0
+            appliedIntensityBoost = 0
             isPaused = false
         }
     }
@@ -139,6 +201,8 @@ final class ControlVM: ObservableObject {
         sessionState = .emergencyStopped
         sessionTimer?.invalidate()
         rampTimer?.invalidate()
+        stopHeartRateSafety()
+        edgeModeState = .inactive
 
         triggerHaptic(.heavy)
         try await sendEmergencyStop()
@@ -150,6 +214,7 @@ final class ControlVM: ObservableObject {
         sessionElapsedMs = 0
         isPaused = false
         intensityBoost = 0
+        appliedIntensityBoost = 0
         triggerHaptic(.medium)
     }
 
@@ -159,6 +224,7 @@ final class ControlVM: ObservableObject {
         update(&channelA)
         applySafetyLimits(to: &channelA)
         if isSynced { channelB.sync(from: channelA) }
+        persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("A", state: channelA) }
@@ -169,6 +235,7 @@ final class ControlVM: ObservableObject {
         update(&channelB)
         applySafetyLimits(to: &channelB)
         if isSynced { channelA.sync(from: channelB) }
+        persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("B", state: channelB) }
@@ -186,6 +253,7 @@ final class ControlVM: ObservableObject {
     func toggleSync() {
         isSynced.toggle()
         if isSynced { channelB.sync(from: channelA) }
+        persistLastControlState()
         triggerHaptic(.light)
     }
 
@@ -219,30 +287,44 @@ final class ControlVM: ObservableObject {
         if isSessionActive && !isPaused {
             Task { try? await applyCurrentSettings() }
         }
+        persistLastControlState()
         triggerHaptic(.medium)
     }
 
     // MARK: - Intensity Boost
 
     func applyIntensityBoost(_ boost: Double) {
+        let delta = boost - appliedIntensityBoost
         intensityBoost = boost
+        appliedIntensityBoost = boost
         updateChannelA { ch in
-            ch.strength = max(0, min(100, ch.strength + boost))
+            ch.strength = max(0, min(100, ch.strength + delta))
         }
         if !isSynced {
             updateChannelB { ch in
-                ch.strength = max(0, min(100, ch.strength + boost))
+                ch.strength = max(0, min(100, ch.strength + delta))
             }
         }
+        persistLastControlState()
     }
 
     // MARK: - Waveform Preview
 
     func updateWaveformPreview() {
-        Task {
-            waveformPoints = await waveformEngine.generate(
-                channelA.waveform, samples: 500, frequency: channelA.frequency
-            )
+        waveformPreviewTask?.cancel()
+
+        let waveform = channelA.waveform
+        let frequency = channelA.frequency
+        let engine = waveformEngine
+
+        waveformPreviewTask = Task {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+
+            let points = await engine.generate(waveform, samples: 180, frequency: frequency)
+            guard !Task.isCancelled else { return }
+
+            waveformPoints = points
         }
     }
 
@@ -251,19 +333,16 @@ final class ControlVM: ObservableObject {
     private func connectIfNeeded() async throws {
         guard let settings = settingsVM else { return }
         switch settings.connectionConfig.mode {
-        case .im:
-            let state = await imService.connectionState
-            if state == .disconnected && !settings.connectionConfig.imConnectCode.isEmpty {
-                connectionStatus = .connecting
-                try await imService.authenticate(connectCode: settings.connectionConfig.imConnectCode)
-                connectionStatus = .connected
-            }
         case .ble:
             connectionStatus = .connecting
+            guard bluetoothService.isReady else {
+                connectionStatus = .disconnected
+                throw BLEError.notConnected
+            }
             connectionStatus = .connected
         case .http:
             connectionStatus = .connecting
-            httpService.connect(url: settings.connectionConfig.httpServerURL)
+            await httpService.connect(url: settings.connectionConfig.httpServerURL)
             connectionStatus = .connected
         }
     }
@@ -279,13 +358,15 @@ final class ControlVM: ObservableObject {
 
     private func applyChannelCommand(_ channel: String, state: ChannelState) async throws {
         guard let settings = settingsVM else { return }
-        let strength = Int(min(state.strength, settings.safetyConfig.maxStrength))
+        let strength = Int(min(state.strength, adaptiveStrengthLimit))
 
         switch settings.connectionConfig.mode {
-        case .im:
-            try await imService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         case .ble:
-            try await bluetoothService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
+            try await bluetoothService.sendRealtimeControl(
+                channelA: channelA,
+                channelB: isSynced ? channelA : channelB,
+                adaptiveStrengthLimit: adaptiveStrengthLimit
+            )
         case .http:
             try await httpService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         }
@@ -294,7 +375,6 @@ final class ControlVM: ObservableObject {
     private func sendEmergencyStop() async throws {
         guard let settings = settingsVM else { return }
         switch settings.connectionConfig.mode {
-        case .im: try await imService.emergencyStop()
         case .ble: try await bluetoothService.emergencyStop()
         case .http: try await httpService.emergencyStop()
         }
@@ -305,6 +385,7 @@ final class ControlVM: ObservableObject {
         let config = settings.safetyConfig
 
         channel.strength = min(channel.strength, config.maxStrength)
+        channel.strength = min(channel.strength, adaptiveStrengthLimit)
 
         let chConfig = channel.id == .a ? settings.channelAConfig : settings.channelBConfig
         channel.strength = max(chConfig.minStrength, min(channel.strength, chConfig.maxStrength))
@@ -371,6 +452,158 @@ final class ControlVM: ObservableObject {
         }
     }
 
+    func requestHeartRateAuthorization() async {
+        do {
+            let status = try await heartRateService.authorizationStatus()
+            heartRateAuthorizationStatus = status
+
+            if status == .shouldRequest || status == .unknown {
+                try await heartRateService.requestAuthorization()
+                heartRateAuthorizationStatus = try await heartRateService.authorizationStatus()
+            }
+
+            heartRateAuthorizationError = nil
+            if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
+                startHeartRateSafetyIfNeeded()
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+        }
+    }
+
+    func refreshHeartRateAuthorizationStatus() async {
+        do {
+            let status = try await heartRateService.authorizationStatus()
+            heartRateAuthorizationStatus = status
+            heartRateAuthorizationError = nil
+
+            switch status {
+            case .unavailable:
+                heartRateSafetyState = .unavailable
+                edgeModeState = .inactive
+            case .shouldRequest, .unknown:
+                if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
+                    heartRateSafetyState = .needsAuthorization
+                    edgeModeState = settingsVM?.edgeModeConfig.isEnabled == true ? .armed : .inactive
+                }
+            case .unnecessary:
+                if settingsVM?.heartRateSafetyConfig.isEnabled == true || settingsVM?.edgeModeConfig.isEnabled == true {
+                    startHeartRateSafetyIfNeeded()
+                }
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateAuthorizationStatus = heartRateService.isAvailable ? .unknown : .unavailable
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+        }
+    }
+
+    private func startHeartRateSafetyIfNeeded() {
+        guard let settingsVM else { return }
+        guard settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring || settingsVM.edgeModeConfig.isEnabled else {
+            heartRateSafetyState = .inactive
+            edgeModeState = .inactive
+            return
+        }
+
+        let policy = HeartRateSafetyPolicy(config: settingsVM.heartRateSafetyConfig)
+        do {
+            try heartRateService.startMonitoring { [weak self] reading in
+                guard let self else { return }
+                self.handleHeartRateUpdate(reading, safetyPolicy: policy)
+            }
+        } catch {
+            heartRateAuthorizationError = error.localizedDescription
+            heartRateSafetyState = heartRateService.isAvailable ? .needsAuthorization : .unavailable
+            edgeModeState = .inactive
+        }
+    }
+
+    private func handleHeartRateUpdate(_ reading: HeartRateReading, safetyPolicy: HeartRateSafetyPolicy) {
+        guard let settingsVM else { return }
+        latestHeartRateReading = reading
+
+        guard isFresh(reading) else {
+            heartRateSafetyState = .stale(bpm: reading.bpm)
+            edgeModeState = settingsVM.edgeModeConfig.isEnabled ? .armed : .inactive
+            return
+        }
+
+        let bpm = reading.bpm
+        if settingsVM.heartRateSafetyConfig.isEnabled || settingsVM.safetyConfig.heartRateMonitoring {
+            heartRateSafetyState = safetyPolicy.evaluate(bpm: bpm)
+        } else {
+            heartRateSafetyState = .monitoring(bpm: bpm, multiplier: 1)
+        }
+        applyEdgeModeIfNeeded(bpm: bpm)
+        applyAdaptiveHeartRateLimits()
+    }
+
+    private func handleWatchHeartRate(_ reading: HeartRateReading) {
+        let policy = HeartRateSafetyPolicy(config: settingsVM?.heartRateSafetyConfig ?? .default)
+        handleHeartRateUpdate(reading, safetyPolicy: policy)
+    }
+
+    private func applyEdgeModeIfNeeded(bpm: Double) {
+        guard let settingsVM, settingsVM.edgeModeConfig.isEnabled else {
+            edgeModeState = .inactive
+            return
+        }
+
+        let policy = EdgeModePolicy(config: settingsVM.edgeModeConfig)
+        let state = policy.evaluate(bpm: bpm, currentStrength: currentMaxStrength)
+        edgeModeState = isSessionActive && !isPaused ? state : .armed
+
+        guard isSessionActive, !isPaused, let targetStrength = state.targetStrength else { return }
+        if let lastEdgeAdjustmentAt,
+           Date().timeIntervalSince(lastEdgeAdjustmentAt) < settingsVM.edgeModeConfig.cooldownSeconds {
+            return
+        }
+
+        lastEdgeAdjustmentAt = .now
+        let target = min(targetStrength, adaptiveStrengthLimit)
+        let delta = target - currentMaxStrength
+
+        updateChannelA { channel in
+            channel.strength = max(0, min(100, channel.strength + delta))
+        }
+
+        if !isSynced {
+            updateChannelB { channel in
+                channel.strength = max(0, min(100, channel.strength + delta))
+            }
+        }
+    }
+
+    private func applyAdaptiveHeartRateLimits() {
+        guard let settingsVM else { return }
+        channelA.strength = min(channelA.strength, adaptiveStrengthLimit)
+        channelB.strength = min(channelB.strength, adaptiveStrengthLimit)
+
+        if case .critical = heartRateSafetyState,
+           settingsVM.heartRateSafetyConfig.emergencyStopOnCritical,
+           isSessionActive {
+            Task { try? await emergencyStop() }
+        } else if isSessionActive && !isPaused {
+            Task { try? await applyCurrentSettings() }
+        }
+    }
+
+    private func stopHeartRateSafety() {
+        heartRateService.stopMonitoring()
+        if settingsVM?.heartRateSafetyConfig.isEnabled != true {
+            heartRateSafetyState = .inactive
+        }
+        if settingsVM?.edgeModeConfig.isEnabled != true {
+            edgeModeState = .inactive
+        }
+    }
+
+    private func isFresh(_ reading: HeartRateReading) -> Bool {
+        Date().timeIntervalSince(reading.sampleDate) <= liveHeartRateMaxAge
+    }
+
     private func advanceProgramStep(_ program: Program) {
         let currentMs = sessionElapsedMs
         for (index, step) in program.steps.enumerated() {
@@ -422,5 +655,37 @@ final class ControlVM: ObservableObject {
 
     func injectSettings(_ vm: SettingsVM) {
         settingsVM = vm
+        applySafetyLimits(to: &channelA)
+        applySafetyLimits(to: &channelB)
+        persistLastControlState()
+        updateWaveformPreview()
+    }
+
+    private struct LastControlState: Codable {
+        var channelA: ChannelState
+        var channelB: ChannelState
+        var isSynced: Bool
+        var intensityBoost: Double
+    }
+
+    private func restoreLastControlState() {
+        guard let data = UserDefaults.standard.data(forKey: lastControlStateKey),
+              let state = try? JSONDecoder().decode(LastControlState.self, from: data) else { return }
+        channelA = state.channelA
+        channelB = state.channelB
+        isSynced = state.isSynced
+        intensityBoost = state.intensityBoost
+    }
+
+    private func persistLastControlState() {
+        let state = LastControlState(
+            channelA: channelA,
+            channelB: channelB,
+            isSynced: isSynced,
+            intensityBoost: intensityBoost
+        )
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: lastControlStateKey)
+        }
     }
 }

@@ -5,6 +5,7 @@
 DerivedData/
 *.xcodeproj/xcshareddata/
 *.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
 
 # Build
 .build/
