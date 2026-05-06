@@ -15,16 +15,15 @@ struct ControlDashboardView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
-                liveHeader
                 modeSwitch
                 outputConsole
                 controlTiles
                 waveformStage
                 presetRail
-                sessionControlButton
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+            .padding(.bottom, 8)
         }
         .background(
             LinearGradient(
@@ -34,8 +33,6 @@ struct ControlDashboardView: View {
             )
             .ignoresSafeArea()
         )
-        .navigationTitle("Control")
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showQuickPresets) {
             QuickPresetSheet()
         }
@@ -70,62 +67,6 @@ struct ControlDashboardView: View {
             }
         } message: {
             Text("Strength exceeds \(Int(settingsVM.safetyConfig.confirmationThreshold))%. Are you sure?")
-        }
-    }
-
-    private var liveHeader: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(controlVM.isSessionActive ? "Live Output" : "Ready")
-                    .font(.title2.bold())
-                Text(controlVM.isSessionActive ? controlVM.sessionElapsedFormatted : "Local control, no cloud relay")
-                    .font(controlVM.isSessionActive ? .system(.title3, design: .monospaced, weight: .semibold) : .subheadline)
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 8) {
-                    Label(settingsVM.connectionConfig.mode.rawValue, systemImage: settingsVM.connectionConfig.mode.icon)
-                    if let preset = controlVM.activePreset {
-                        Label(preset.name, systemImage: preset.icon)
-                    }
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-            }
-
-            Spacer()
-
-            biometricDial
-        }
-        .padding(16)
-        .glassCard()
-    }
-
-    private var biometricDial: some View {
-        VStack(spacing: 4) {
-            ZStack {
-                Circle()
-                    .stroke(Color.secondary.opacity(0.18), lineWidth: 8)
-                Circle()
-                    .trim(from: 0, to: heartRateProgress)
-                    .stroke(edgeColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                Image(systemName: biometricIcon)
-                    .font(.title3)
-                    .foregroundColor(edgeColor)
-            }
-            .frame(width: 58, height: 58)
-
-            Text(heartRateText)
-                .font(.caption.monospacedDigit())
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text(controlVM.heartRateSourceLabel)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
         }
     }
 
@@ -231,16 +172,17 @@ struct ControlDashboardView: View {
     }
 
     private var controlTiles: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+        LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10)
+        ], spacing: 10) {
             dashboardTile("Signal", value: controlVM.channelA.waveform.name, icon: "waveform") {
                 showWaveformSettings = true
             }
             dashboardTile("Boost", value: boostText, icon: "bolt.circle") {
                 showIntensitySettings = true
             }
-            dashboardTile("Biometrics", value: biometricTileValue, icon: "heart.fill") {
-                showEdgeSettings = true
-            }
+            biometricTile
             dashboardTile("Device", value: settingsVM.connectionConfig.mode.rawValue, icon: settingsVM.connectionConfig.mode.icon) {
                 showConnectionSetup = true
             }
@@ -266,7 +208,50 @@ struct ControlDashboardView: View {
                 Spacer(minLength: 0)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 82, maxHeight: 82, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var biometricTile: some View {
+        Button {
+            showEdgeSettings = true
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.18), lineWidth: 5)
+                    Circle()
+                        .trim(from: 0, to: heartRateProgress)
+                        .stroke(edgeColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: biometricIcon)
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(edgeColor)
+                }
+                .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Biometrics")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(heartRateText)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    Text(biometricTileValue)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 82, maxHeight: 82, alignment: .leading)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
@@ -335,25 +320,6 @@ struct ControlDashboardView: View {
         }
         .padding(14)
         .glassCard()
-    }
-
-    private var sessionControlButton: some View {
-        Button {
-            if controlVM.isSessionActive {
-                controlVM.stopSession()
-            } else {
-                controlVM.startSession()
-            }
-        } label: {
-            Label(controlVM.isSessionActive ? "Stop Session" : "Start Session", systemImage: controlVM.isSessionActive ? "stop.fill" : "play.fill")
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 15)
-                .background(controlVM.isSessionActive ? Color.orange : Color.green)
-                .foregroundColor(.white)
-                .clipShape(Capsule())
-        }
-        .padding(.top, 2)
     }
 
     private var heartRateText: String {

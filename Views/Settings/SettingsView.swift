@@ -5,7 +5,6 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settingsVM: SettingsVM
     @EnvironmentObject var controlVM: ControlVM
-    @StateObject private var deviceVM = DeviceVM()
 
     var body: some View {
         NavigationStack {

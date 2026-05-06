@@ -35,7 +35,7 @@ final class ControlVM: ObservableObject {
 
     // MARK: - Services
 
-    private let bluetoothService = BluetoothService()
+    private let bluetoothService = BluetoothService.shared
     private let httpService = HTTPService()
     private let heartRateService = HealthKitHeartRateService()
     private var watchHeartRateReceiver: WatchHeartRateReceiver?
@@ -50,6 +50,7 @@ final class ControlVM: ObservableObject {
     private var sessionStartTime: Date = .now
     private var settingsVM: SettingsVM?
     private let liveHeartRateMaxAge: TimeInterval = 30
+    private let lastControlStateKey = "ycy.lastControlState"
 
     // Retained haptic generators (prevent missed haptics)
     private let lightGen = UIImpactFeedbackGenerator(style: .light)
@@ -57,10 +58,20 @@ final class ControlVM: ObservableObject {
     private let heavyGen = UIImpactFeedbackGenerator(style: .heavy)
 
     init() {
+        restoreLastControlState()
         watchHeartRateReceiver = WatchHeartRateReceiver { [weak self] reading in
             self?.handleWatchHeartRate(reading)
         }
         watchHeartRateReceiver?.start()
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            sessionTimer?.invalidate()
+            rampTimer?.invalidate()
+            waveformPreviewTask?.cancel()
+            heartRateService.stopMonitoring()
+        }
     }
 
     // MARK: - Computed
@@ -213,6 +224,7 @@ final class ControlVM: ObservableObject {
         update(&channelA)
         applySafetyLimits(to: &channelA)
         if isSynced { channelB.sync(from: channelA) }
+        persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("A", state: channelA) }
@@ -223,6 +235,7 @@ final class ControlVM: ObservableObject {
         update(&channelB)
         applySafetyLimits(to: &channelB)
         if isSynced { channelA.sync(from: channelB) }
+        persistLastControlState()
         updateWaveformPreview()
         if isSessionActive && !isPaused {
             Task { try? await applyChannelCommand("B", state: channelB) }
@@ -240,6 +253,7 @@ final class ControlVM: ObservableObject {
     func toggleSync() {
         isSynced.toggle()
         if isSynced { channelB.sync(from: channelA) }
+        persistLastControlState()
         triggerHaptic(.light)
     }
 
@@ -273,6 +287,7 @@ final class ControlVM: ObservableObject {
         if isSessionActive && !isPaused {
             Task { try? await applyCurrentSettings() }
         }
+        persistLastControlState()
         triggerHaptic(.medium)
     }
 
@@ -290,6 +305,7 @@ final class ControlVM: ObservableObject {
                 ch.strength = max(0, min(100, ch.strength + delta))
             }
         }
+        persistLastControlState()
     }
 
     // MARK: - Waveform Preview
@@ -319,6 +335,10 @@ final class ControlVM: ObservableObject {
         switch settings.connectionConfig.mode {
         case .ble:
             connectionStatus = .connecting
+            guard bluetoothService.isReady else {
+                connectionStatus = .disconnected
+                throw BLEError.notConnected
+            }
             connectionStatus = .connected
         case .http:
             connectionStatus = .connecting
@@ -342,7 +362,11 @@ final class ControlVM: ObservableObject {
 
         switch settings.connectionConfig.mode {
         case .ble:
-            try await bluetoothService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
+            try await bluetoothService.sendRealtimeControl(
+                channelA: channelA,
+                channelB: isSynced ? channelA : channelB,
+                adaptiveStrengthLimit: adaptiveStrengthLimit
+            )
         case .http:
             try await httpService.sendChannelControl(channel: channel, strength: strength, durationMs: state.durationMs)
         }
@@ -631,5 +655,37 @@ final class ControlVM: ObservableObject {
 
     func injectSettings(_ vm: SettingsVM) {
         settingsVM = vm
+        applySafetyLimits(to: &channelA)
+        applySafetyLimits(to: &channelB)
+        persistLastControlState()
+        updateWaveformPreview()
+    }
+
+    private struct LastControlState: Codable {
+        var channelA: ChannelState
+        var channelB: ChannelState
+        var isSynced: Bool
+        var intensityBoost: Double
+    }
+
+    private func restoreLastControlState() {
+        guard let data = UserDefaults.standard.data(forKey: lastControlStateKey),
+              let state = try? JSONDecoder().decode(LastControlState.self, from: data) else { return }
+        channelA = state.channelA
+        channelB = state.channelB
+        isSynced = state.isSynced
+        intensityBoost = state.intensityBoost
+    }
+
+    private func persistLastControlState() {
+        let state = LastControlState(
+            channelA: channelA,
+            channelB: channelB,
+            isSynced: isSynced,
+            intensityBoost: intensityBoost
+        )
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: lastControlStateKey)
+        }
     }
 }

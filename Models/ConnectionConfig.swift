@@ -32,6 +32,7 @@ struct ConnectionConfig: Codable, Equatable {
 
     // BLE settings
     var bleLastDeviceId: String?
+    var bleLastDeviceName: String?
     var bleAutoConnect: Bool
 
     // HTTP settings
@@ -42,6 +43,7 @@ struct ConnectionConfig: Codable, Equatable {
     static let `default` = ConnectionConfig(
         mode: .ble,
         bleLastDeviceId: nil,
+        bleLastDeviceName: nil,
         bleAutoConnect: false,
         httpServerURL: "http://localhost:3001",
         httpAPIKey: "",

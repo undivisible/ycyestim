@@ -8,6 +8,10 @@ actor HTTPService {
     private var isConnected = false
     private var messageHandler: ((String) -> Void)?
 
+    deinit {
+        wsTask?.cancel(with: .normalClosure, reason: nil)
+    }
+
     // MARK: - Connection
 
     func connect(url: String) {

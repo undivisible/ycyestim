@@ -32,6 +32,10 @@ final class HealthKitHeartRateService: @unchecked Sendable {
     private var query: HKAnchoredObjectQuery?
     private var anchor: HKQueryAnchor?
 
+    deinit {
+        stopMonitoring()
+    }
+
     var isAvailable: Bool {
         HKHealthStore.isHealthDataAvailable()
     }

@@ -42,6 +42,15 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
         activateConnectivity()
     }
 
+    deinit {
+        elapsedTimer?.invalidate()
+        session?.delegate = nil
+        builder?.delegate = nil
+        if WCSession.isSupported(), WCSession.default.delegate === self {
+            WCSession.default.delegate = nil
+        }
+    }
+
     @MainActor
     func startWorkout() async {
         status = .authorizing

@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Channel State
 
-struct ChannelState: Identifiable, Equatable {
+struct ChannelState: Identifiable, Codable, Equatable {
     let id: ChannelID
     var isEnabled: Bool
     var strength: Double        // 0–100

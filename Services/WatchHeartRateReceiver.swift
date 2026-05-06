@@ -15,6 +15,12 @@ final class WatchHeartRateReceiver: NSObject, WCSessionDelegate, @unchecked Send
         session.activate()
     }
 
+    deinit {
+        if WCSession.isSupported(), WCSession.default.delegate === self {
+            WCSession.default.delegate = nil
+        }
+    }
+
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) { }
 
     func sessionDidBecomeInactive(_ session: WCSession) { }

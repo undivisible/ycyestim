@@ -40,4 +40,16 @@ struct BLEPeripheralInfo: Identifiable {
     let name: String
     let rssi: Int
     let isPaired: Bool
+    let hasEstimService: Bool
+    let isConnectable: Bool
+    let matchDescription: String
+
+    var signalQuality: String {
+        switch rssi {
+        case -55...0: return "Excellent"
+        case -70 ... -56: return "Good"
+        case -85 ... -71: return "Fair"
+        default: return "Weak"
+        }
+    }
 }
