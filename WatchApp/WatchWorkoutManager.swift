@@ -24,10 +24,29 @@ enum WatchWorkoutStatus: Equatable {
             return message
         }
     }
+
+    var relayValue: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .authorizing:
+            return "authorizing"
+        case .running:
+            return "running"
+        case .ending:
+            return "ending"
+        case .failed:
+            return "failed"
+        }
+    }
 }
 
 final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate, WCSessionDelegate, @unchecked Sendable {
-    @Published var status: WatchWorkoutStatus = .idle
+    @Published var status: WatchWorkoutStatus = .idle {
+        didSet {
+            sendWorkoutStatus()
+        }
+    }
     @Published var latestBPM: Double?
     @Published var elapsedSeconds = 0
 
@@ -36,6 +55,8 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
     private var builder: HKLiveWorkoutBuilder?
     private var startDate: Date?
     private var elapsedTimer: Timer?
+    private var stopRequested = false
+    private var restartTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -44,6 +65,7 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
 
     deinit {
         elapsedTimer?.invalidate()
+        restartTask?.cancel()
         session?.delegate = nil
         builder?.delegate = nil
         if WCSession.isSupported(), WCSession.default.delegate === self {
@@ -53,6 +75,9 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
 
     @MainActor
     func startWorkout() async {
+        guard status != .running && status != .authorizing else { return }
+        restartTask?.cancel()
+        stopRequested = false
         status = .authorizing
 
         do {
@@ -86,9 +111,24 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
     @MainActor
     func stopWorkout() {
         guard session != nil else { return }
+        stopRequested = true
+        restartTask?.cancel()
         status = .ending
         elapsedTimer?.invalidate()
         session?.end()
+    }
+
+    func sendEmergencyStop() {
+        let payload: [String: Any] = [
+            "emergencyStop": true,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(payload, replyHandler: nil)
+        }
+        try? WCSession.default.updateApplicationContext(payload)
+        WCSession.default.transferUserInfo(payload)
     }
 
     private func requestAuthorization() async throws {
@@ -124,7 +164,7 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
         }
     }
 
-    private func finishWorkout() {
+    private func finishWorkout(shouldRestart: Bool = false) {
         let endDate = Date()
         builder?.endCollection(withEnd: endDate) { [weak self] _, error in
             if let error {
@@ -145,6 +185,9 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
                     self?.builder = nil
                     self?.startDate = nil
                     self?.elapsedSeconds = 0
+                    if shouldRestart {
+                        self?.scheduleRestart()
+                    }
                 }
             }
         }
@@ -160,7 +203,8 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
     private func sendHeartRate(_ bpm: Double, sampleDate: Date) {
         let payload: [String: Any] = [
             "bpm": bpm,
-            "timestamp": sampleDate.timeIntervalSince1970
+            "timestamp": sampleDate.timeIntervalSince1970,
+            "workoutStatus": status.relayValue
         ]
 
         if WCSession.default.isReachable {
@@ -168,6 +212,31 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
         }
         try? WCSession.default.updateApplicationContext(payload)
         WCSession.default.transferUserInfo(payload)
+    }
+
+    private func sendWorkoutStatus() {
+        let payload: [String: Any] = [
+            "workoutStatus": status.relayValue,
+            "message": status.label,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(payload, replyHandler: nil)
+        }
+        try? WCSession.default.updateApplicationContext(payload)
+        WCSession.default.transferUserInfo(payload)
+    }
+
+    @MainActor
+    private func scheduleRestart() {
+        guard !stopRequested else { return }
+        restartTask?.cancel()
+        restartTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await self?.startWorkout()
+        }
     }
 
     @MainActor
@@ -182,8 +251,27 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
     }
 
     func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState, from fromState: HKWorkoutSessionState, date: Date) {
-        if toState == .ended {
-            finishWorkout()
+        Task { @MainActor in
+            switch toState {
+            case .running:
+                status = .running
+                startElapsedTimer()
+            case .paused:
+                if stopRequested {
+                    status = .ending
+                } else {
+                    workoutSession.resume()
+                    status = .running
+                }
+            case .ended:
+                let shouldRestart = !stopRequested
+                if shouldRestart {
+                    status = .failed("Workout ended unexpectedly")
+                }
+                finishWorkout(shouldRestart: shouldRestart)
+            default:
+                break
+            }
         }
     }
 
@@ -191,6 +279,7 @@ final class WatchWorkoutManager: NSObject, ObservableObject, HKWorkoutSessionDel
         Task { @MainActor in
             status = .failed(error.localizedDescription)
             elapsedTimer?.invalidate()
+            scheduleRestart()
         }
     }
 

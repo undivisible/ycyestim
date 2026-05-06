@@ -36,6 +36,13 @@ struct WatchContentView: View {
                     .frame(maxWidth: .infinity)
             }
             .tint(workoutManager.status == .running ? .red : .green)
+
+            Button(role: .destructive) {
+                workoutManager.sendEmergencyStop()
+            } label: {
+                Label("Emergency Stop", systemImage: "exclamationmark.octagon.fill")
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding()
     }
