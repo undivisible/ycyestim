@@ -1,11 +1,9 @@
-# Xcode
-*.xcworkspace
+# Xcode / XcodeGen
+*.xcodeproj/
+*.xcworkspace/
 *.xcuserdata
 *.xcbkptlist
 DerivedData/
-*.xcodeproj/xcshareddata/
-*.xcodeproj/project.xcworkspace/
-*.xcodeproj/xcuserdata/
 
 # Build
 .build/
@@ -15,23 +13,16 @@ DerivedData/
 *.dSYM.zip
 *.dSYM
 
-# CocoaPods
-Pods/
-*.xcworkspace
-
 # Carthage
 Carthage/Build/
 
 # SwiftPM
 Packages/
 Package.resolved
-.build/
 
 # IDE
 .idea/
 .vscode/
-
-# Swift
 *.swiftpm/
 
 # macOS

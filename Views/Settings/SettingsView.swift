@@ -233,7 +233,7 @@ struct SettingsView: View {
                     }
 
                     LabeledContent("Edge Ceiling") {
-                        Slider(value: $settingsVM.edgeModeConfig.maxStrength, in: settingsVM.edgeModeConfig.minStrength...80, step: 1)
+                        Slider(value: $settingsVM.edgeModeConfig.maxStrength, in: settingsVM.edgeModeConfig.minStrength...100, step: 1)
                     }
 
                     LabeledContent("Edge Step") {

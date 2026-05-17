@@ -87,9 +87,14 @@ The upstream [YCY-YOKONEX OpenSource](https://github.com/YCY-YOKONEX/YCY-YOKONEX
 
 ## Building
 
-Open `YCYEStim` folder in Xcode and build for your device.
+```bash
+xcodegen generate
+open YCYEStim.xcodeproj
+```
 
-No dependencies required — pure Swift + SwiftUI + CoreBluetooth.
+`YCYEStim.xcodeproj` is generated locally and not committed. Requires [XcodeGen](https://github.com/yonaskolb/XcodeGen).
+
+No app runtime dependencies — pure Swift + SwiftUI + CoreBluetooth.
 
 ## Apple Watch
 
@@ -100,4 +105,4 @@ session and streams fresh heart-rate samples back to Edge Mode.
 
 ## License
 
-MIT
+[MPL-2.0](LICENSE)

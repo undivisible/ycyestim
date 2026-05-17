@@ -10,8 +10,6 @@ options:
   indentationWidth: 4
   usesTabs: false
   groupSortPosition: top
-  postGenCommand: "ruby scripts/fix_healthkit_capability.rb"
-
 settings:
   base:
     SWIFT_VERSION: "6.0"

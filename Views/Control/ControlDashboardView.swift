@@ -498,7 +498,7 @@ struct EdgeModeSettingsSheet: View {
                         Text("\(Int(settingsVM.edgeModeConfig.maxStrength))%")
                             .monospacedDigit()
                     }
-                    Slider(value: edgeDouble(\.maxStrength), in: settingsVM.edgeModeConfig.minStrength...80, step: 1)
+                    Slider(value: edgeDouble(\.maxStrength), in: settingsVM.edgeModeConfig.minStrength...100, step: 1)
 
                     LabeledContent("Step") {
                         Text("\(settingsVM.edgeModeConfig.rampStep, specifier: "%.1f")%")
